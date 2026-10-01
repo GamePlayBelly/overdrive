@@ -1,0 +1,21 @@
+import { launch } from './harness.mjs';
+const { page, close, logs } = await launch({ width: 640, height: 360 });
+await page.waitForFunction(() => window.__app && window.__app.mode === 'play', null, { timeout: 240000 });
+console.log(JSON.stringify(await page.evaluate(() => {
+  window.__pauseLoop = true;
+  const g = window.__game, P = g.player, I = g.input, out = {};
+  g.traffic.update = () => {}; g.peds.update = () => {};
+  P.exit();
+  const v = g.vehicles.find((q) => q.def.id === 'skylark');
+  P.place(v.x + 2.5, v.z + 3.5, 0); P.y = g.world.groundY(P.x, P.z, 50);
+  for (let i = 0; i < 20; i++) g.update(1 / 60);
+  out.near = g.nearestVehicle(P.x, P.z, 5.2)?.def.id;
+  I.pressed.add('KeyF'); g.update(1 / 60);
+  out.enter = { state: P.state, vehicle: P.vehicle?.def.id };
+  for (let i = 0; i < 30; i++) g.update(1 / 60);
+  I.pressed.add('KeyF'); g.update(1 / 60);
+  out.exit = { state: P.state, vehicle: P.vehicle?.def.id || null };
+  return out;
+})));
+console.log('logs:', logs.filter((l) => !/getImageData/.test(l)).slice(0, 4).join('\n') || 'none');
+await close(); process.exit(0);

@@ -1,0 +1,6 @@
+.btn { appearance: none; border: 1px solid var(--line2); background: #20252b; color: var(--text); padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; }
+.btn.primary { background: var(--red); border-color: var(--red); color: #fff; }
+.card { background: rgba(24,27,32,.92); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+.hud { position: absolute; inset: 0; pointer-events: none; }
+.hud > * { position: absolute; }
+.toast { background: rgba(14,16,20,.92); border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: 8px; padding: 10px 14px; font-size: 13px; }

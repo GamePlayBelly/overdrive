@@ -1,0 +1,75 @@
+{
+ "license": "CC0 1.0, Poly Haven (polyhaven.com)",
+ "textures": {
+  "asphalt": {
+   "src": "asphalt_02",
+   "size": 3.0,
+   "mean": 0.278
+  },
+  "concrete": {
+   "src": "concrete_floor_worn_001",
+   "size": 3.0,
+   "mean": 0.663
+  },
+  "pavers": {
+   "src": "square_tiles_03",
+   "size": 2.0,
+   "mean": 0.504
+  },
+  "grass": {
+   "src": "leafy_grass",
+   "size": 2.0,
+   "mean": 0.3
+  },
+  "dirt": {
+   "src": "brown_mud_dry",
+   "size": 1.3,
+   "mean": 0.373
+  },
+  "gravel": {
+   "src": "gravel_floor_02",
+   "size": 2.0,
+   "mean": 0.5
+  },
+  "sand": {
+   "src": "coast_sand_01",
+   "size": 15.0,
+   "mean": 0.672
+  },
+  "brick": {
+   "src": "red_brick_03",
+   "size": 1.0,
+   "mean": 0.755
+  },
+  "stucco": {
+   "src": "beige_wall_001",
+   "size": 3.0,
+   "mean": 0.817
+  },
+  "corr": {
+   "src": "corrugated_iron",
+   "size": 1.12,
+   "mean": 0.683
+  },
+  "shingles": {
+   "src": "roof_slates_03",
+   "size": 3.0,
+   "mean": 0.64
+  },
+  "membrane": {
+   "src": "tarred_gravel",
+   "size": 2.2,
+   "mean": 0.578
+  },
+  "rock": {
+   "src": "rock_05",
+   "size": 1.5,
+   "mean": 0.417
+  },
+  "bark": {
+   "src": "bark_brown_02",
+   "size": 1.0,
+   "mean": 0.333
+  }
+ }
+}

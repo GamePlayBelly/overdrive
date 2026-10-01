@@ -1,0 +1,13 @@
+import { launch } from './harness.mjs';
+const { page, close } = await launch({ width: 1280, height: 720 });
+await page.waitForFunction(() => window.__game && window.__game.player?.vehicle, null, { timeout: 240000 });
+const meas = () => page.evaluate(() => new Promise((res) => { const ts = []; const f = (t) => { ts.push(t); if (ts.length < 180) requestAnimationFrame(f); else { const d = []; for (let i = 1; i < ts.length; i++) d.push(ts[i] - ts[i - 1]); d.sort((a, b) => a - b); res({ p10: +d[18].toFixed(1), p50: +d[90].toFixed(1), p90: +d[162].toFixed(1) }); } }; requestAnimationFrame(f); }));
+console.log('running game loop', JSON.stringify(await meas()));
+await page.evaluate(() => { window.__pauseLoop = true; });
+await new Promise((r) => setTimeout(r, 500));
+console.log('loop paused', JSON.stringify(await meas()));
+await page.evaluate(() => { window.__pauseLoop = false; const g = window.__game; window.__status = g.gov.status(); });
+await new Promise((r) => setTimeout(r, 40000));
+console.log('gov', JSON.stringify(await page.evaluate(() => window.__game.gov.status())), 'target', await page.evaluate(() => window.__game.gov.targetFps));
+console.log('running again', JSON.stringify(await meas()));
+await close(); process.exit(0);

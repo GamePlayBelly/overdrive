@@ -1,0 +1,15 @@
+import { launch, shot, sleep } from './harness.mjs';
+const { page, close, logs } = await launch({ width: 1440, height: 810, query: '' });
+await sleep(3000);
+await shot(page, 'flow_1_loading');
+await sleep(2500);
+await shot(page, 'flow_1b_loading');
+await page.waitForSelector('.boot-go.show', { timeout: 120000 });
+await sleep(1200);
+await shot(page, 'flow_2_ready');
+await page.click('.boot-go button');
+await page.waitForFunction(() => window.__app?.mode === 'home', null, { timeout: 60000 });
+await sleep(3500);
+await shot(page, 'flow_3_home');
+console.log('LOGS', logs.filter((l) => !/getImageData/.test(l)).slice(0, 10).join('\n'));
+await close(); process.exit(0);

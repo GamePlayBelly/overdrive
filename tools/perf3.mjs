@@ -1,0 +1,20 @@
+import { launch } from './harness.mjs';
+import * as fs from 'node:fs';
+const { page, close } = await launch({ width: 1280, height: 720 });
+await page.waitForFunction(() => window.__game && window.__game.player?.vehicle, null, { timeout: 240000 });
+const r = await page.evaluate(() => {
+  const g = window.__game, v = g.player.vehicle, gl = g.renderer.getContext(), R = g.renderer;
+  v.place(-271.5, g.world.groundY(-271.5, 230, 60), 230, 3.14); g.rig.snapBehind();
+  for (let i = 0; i < 90; i++) g.update(1 / 60);
+  const med = (a) => { a = a.slice().sort((p, q) => p - q); return +a[Math.floor(a.length / 2)].toFixed(1); };
+  const measure = (n = 7) => { const t = []; for (let i = 0; i < n; i++) { const t0 = performance.now(); g.render(); gl.finish(); t.push(performance.now() - t0); } return med(t); };
+  const out = {};
+  out.base = measure();
+  const w0 = R.domElement.width, h0 = R.domElement.height;
+  R.setSize(320, 180, false); out.small320 = measure(); R.setSize(w0, h0, false);
+  R.setPixelRatio(0.5); R.setSize(1280, 720, false); out.halfRes = measure(); R.setPixelRatio(1); R.setSize(1280, 720, false);
+  g.scene.overrideMaterial = new (g.scene.constructor && window.__THREE ? window.__THREE.MeshBasicMaterial : Object)(); 
+  return out;
+});
+console.log(JSON.stringify(r));
+await close(); process.exit(0);

@@ -1,0 +1,63 @@
+<!doctype html><html><body style="margin:0;background:#000"><canvas id="c" width="1280" height="720"></canvas>
+<script type="importmap">{ "imports": { "three": "../../node_modules/three/build/three.module.js" } }</script>
+<script type="module">
+import * as THREE from 'three';
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(1280, 720, false);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(60, 1280 / 720, 0.5, 4000);
+cam.position.set(0, 30, 80); cam.lookAt(0, 0, 0);
+const sun = new THREE.DirectionalLight(0xffffff, 3); sun.position.set(60, 100, 40); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -120, right: 120, top: 120, bottom: -120, near: 1, far: 400 }); scene.add(sun, new THREE.HemisphereLight(0xbfd4ff, 0x554433, 1));
+window.setup = (kind, tris, opts = {}) => {
+  for (const c of [...scene.children]) if (c.userData.bench) { scene.remove(c); c.geometry?.dispose(); }
+  const segs = Math.max(1, Math.round(Math.sqrt(tris / 2)));
+  let geo;
+  if (kind === 'grid') { geo = new THREE.PlaneGeometry(200, 200, segs, segs); geo.rotateX(-Math.PI / 2); }
+  else if (kind === 'sphereInst') { geo = new THREE.IcosahedronGeometry(1, opts.detail ?? 1); }
+  let mat;
+  if (opts.mat === 'basic') mat = new THREE.MeshBasicMaterial({ color: 0x88aa66 });
+  else if (opts.mat === 'lambert') mat = new THREE.MeshLambertMaterial({ color: 0x88aa66 });
+  else mat = new THREE.MeshStandardMaterial({ color: 0x88aa66, roughness: 0.8 });
+  if (opts.alpha) { const cv = document.createElement('canvas'); cv.width = cv.height = 64; const x = cv.getContext('2d'); x.fillStyle = '#fff'; x.beginPath(); x.arc(32, 32, 24, 0, 7); x.fill(); mat.alphaMap = new THREE.CanvasTexture(cv); mat.alphaTest = 0.5; mat.side = THREE.DoubleSide; }
+  let mesh;
+  if (kind === 'grid') mesh = new THREE.Mesh(geo, mat);
+  else { const n = opts.count ?? 1000; mesh = new THREE.InstancedMesh(geo, mat, n); const m = new THREE.Matrix4(); for (let i = 0; i < n; i++) { m.makeTranslation((Math.random() - 0.5) * 200, Math.random() * 20, (Math.random() - 0.5) * 200); mesh.setMatrixAt(i, m); } mesh.frustumCulled = false; }
+  mesh.castShadow = opts.cast ?? true; mesh.receiveShadow = true; mesh.userData.bench = true;
+  scene.add(mesh);
+  return { tris: (geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3) * (mesh.count ?? 1) };
+};
+window.setupDraws = (kind, count, trisEach) => {
+  for (const c of [...scene.children]) if (c.userData.bench) { scene.remove(c); c.geometry?.dispose(); if (c.dispose) c.dispose(); }
+  const mat = new THREE.MeshStandardMaterial({ color: 0x88aa66, roughness: 0.8 });
+  const seg = Math.max(1, Math.round(Math.sqrt(trisEach / 2)));
+  if (kind === 'meshes') {
+    const g = new THREE.PlaneGeometry(2, 2, seg, seg); g.rotateX(-Math.PI / 2);
+    for (let i = 0; i < count; i++) { const m = new THREE.Mesh(g, mat); m.position.set((Math.random() - 0.5) * 200, 0, (Math.random() - 0.5) * 200); m.userData.bench = true; m.castShadow = false; m.receiveShadow = true; m.matrixAutoUpdate = false; m.updateMatrix(); scene.add(m); }
+  } else if (kind === 'batched') {
+    const g = new THREE.PlaneGeometry(2, 2, seg, seg); g.rotateX(-Math.PI / 2);
+    const bm = new THREE.BatchedMesh(count + 2, (seg + 1) * (seg + 1) * (count + 2), seg * seg * 6 * (count + 2), mat);
+    bm.perObjectFrustumCulled = true; bm.sortObjects = false; bm.frustumCulled = false;
+    const gid = bm.addGeometry(g); const m4 = new THREE.Matrix4();
+    for (let i = 0; i < count; i++) { const id = bm.addInstance(gid); m4.makeTranslation((Math.random() - 0.5) * 200, 0, (Math.random() - 0.5) * 200); bm.setMatrixAt(id, m4); }
+    bm.userData.bench = true; bm.castShadow = false; bm.receiveShadow = true; scene.add(bm);
+  } else if (kind === 'batchedBig') {
+    const g = new THREE.PlaneGeometry(200, 200, seg, seg); g.rotateX(-Math.PI / 2);
+    const bm = new THREE.BatchedMesh(2, (seg + 1) * (seg + 1) + 4, seg * seg * 6 + 4, mat);
+    const gid = bm.addGeometry(g); bm.addInstance(gid); bm.userData.bench = true; bm.receiveShadow = true; scene.add(bm);
+  }
+};
+window.gpu = async (n = 8) => {
+  const gl = renderer.getContext(), ext = gl.getExtension('EXT_disjoint_timer_query_webgl2'), res = [];
+  for (let i = 0; i < n + 3; i++) {
+    const q = gl.createQuery(); gl.beginQuery(ext.TIME_ELAPSED_EXT, q); renderer.render(scene, cam); gl.endQuery(ext.TIME_ELAPSED_EXT);
+    let k = 0; while (k++ < 300) { await new Promise((r) => setTimeout(r, 3)); if (gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) { if (!gl.getParameter(ext.GPU_DISJOINT_EXT) && i >= 3) res.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6); break; } }
+    gl.deleteQuery(q);
+  }
+  res.sort((a, b) => a - b); return +res[Math.floor(res.length / 2)].toFixed(2);
+};
+window.ready = true;
+</script></body></html>

@@ -1,0 +1,14 @@
+{
+  "name": "real-world",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

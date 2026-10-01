@@ -1,0 +1,20 @@
+import { launch, shot } from './harness.mjs';
+const W = Number(process.env.W || 1280), H = Number(process.env.H || 720);
+const { page, close } = await launch({ width: W, height: H });
+await page.waitForFunction(() => window.__game && window.__game.player?.vehicle, null, { timeout: 240000 });
+const cfg = { cam: JSON.parse(process.env.CAM || '[0,60,2000]'), look: JSON.parse(process.env.LOOK || '[0,0,2200]'), fov: Number(process.env.FOV || 60), hour: Number(process.env.HOUR || 12), weather: process.env.WEATHER || 'sunny', frames: Number(process.env.FRAMES || 60), scale: Number(process.env.SCALE || 1), code: process.env.CODE || '' };
+await page.evaluate((c) => {
+  window.__pauseLoop = true;
+  const g = window.__game, THREE = window.__THREE;
+  g.pipeline.setQuality({ scale: c.scale, samples: 2, bloom: true });
+  g.sky.time = c.hour; g.sky.timeScale = 0; g.sky.lockWeather = c.weather; g.sky.setWeather(c.weather, true);
+  g.traffic.update = () => {}; g.peds.update = () => {};
+  const v = g.player.vehicle; v.place(c.look[0], g.world.groundY(c.look[0], c.look[2], 80), c.look[2], 0);
+  window.__cam = () => { g.rig.cine = { t: 0, from: () => new THREE.Vector3(...c.cam), target: () => new THREE.Vector3(...c.look), fov: c.fov, snap: 500, dur: 0 }; g.rig.pos.set(...c.cam); g.rig.look.set(...c.look); };
+  window.__cam();
+  if (c.code) new Function('g', 'THREE', c.code)(g, THREE);
+}, cfg);
+for (let i = 0; i < cfg.frames; i += 10) await page.evaluate(() => { const g = window.__game; for (let k = 0; k < 10; k++) { g.update(1 / 60); window.__cam(); } g.render(1 / 60); });
+await page.evaluate(() => window.__game.render(1 / 60));
+console.log(await shot(page, process.env.NAME || 'aerial'));
+await close(); process.exit(0);

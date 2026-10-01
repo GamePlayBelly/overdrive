@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "real-world", "runtimeExecutable": "node", "runtimeArgs": ["server.mjs", "5466"], "port": 5466 }
+  ]
+}

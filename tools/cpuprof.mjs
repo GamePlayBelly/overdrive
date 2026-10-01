@@ -1,0 +1,18 @@
+import { launch } from './harness.mjs';
+const { page, close } = await launch({ width: 1280, height: 720 });
+await page.waitForFunction(() => window.__game && window.__game.player?.vehicle, null, { timeout: 240000 });
+const [x, z, yaw] = JSON.parse(process.env.SPOT || '[0,-60,0]');
+await page.evaluate(({ x, z, yaw }) => { window.__pauseLoop = true; const g = window.__game, v = g.player.vehicle; v.place(x, g.world.groundY(x, z, 60), z, yaw); g.rig.snapBehind(); for (let i = 0; i < 100; i++) g.update(1 / 60); g.render(); }, { x, z, yaw });
+const cdp = await page.context().newCDPSession(page);
+await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
+await cdp.send('Profiler.start');
+const mode = process.env.MODE || 'render';
+await page.evaluate((mode) => { const g = window.__game; for (let i = 0; i < 40; i++) { if (mode === 'all') g.update(1 / 60); g.render(); } }, mode);
+const { profile } = await cdp.send('Profiler.stop');
+const self = new Map(), byId = new Map(); profile.nodes.forEach((n) => byId.set(n.id, n));
+const dt = profile.timeDeltas; const total = dt.reduce((a, b) => a + b, 0);
+profile.samples.forEach((id, i) => { const n = byId.get(id); const key = n.callFrame.functionName + ' ' + (n.callFrame.url.split('/').pop() || '') + ':' + n.callFrame.lineNumber; self.set(key, (self.get(key) || 0) + dt[i]); });
+const top = [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 28);
+console.log('total ms/frame', (total / 1000 / 40).toFixed(1));
+for (const [k, v] of top) console.log((v / 1000 / 40).toFixed(2).padStart(7), k);
+await close(); process.exit(0);

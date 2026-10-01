@@ -1,0 +1,43 @@
+.sp-hero { position: relative; overflow: hidden; border-radius: 16px; padding: 26px 30px; display: flex; align-items: center; gap: 26px; background: linear-gradient(120deg, #1a0b33, #3a0f4a 45%, #ff5a1f 140%); border: 1px solid #ffffff22; }
+.sp-hero .sp-title h1 { margin: 0; font-family: var(--cond); font-size: clamp(34px, 4.5vw, 64px); letter-spacing: 0.08em; text-transform: uppercase; background: linear-gradient(90deg, #fff, #ffd27a, #19e6c4, #fff); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: spShine 5s linear infinite; }
+.sp-hero small { letter-spacing: 0.5em; color: #19e6c4; font-family: var(--cond); }
+.sp-hero .sp-lvl { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.sp-orb { position: absolute; width: 260px; height: 260px; border-radius: 50%; right: -60px; top: -90px; background: radial-gradient(circle, #ff3fa4aa, transparent 65%); animation: spFloat 7s ease-in-out infinite; pointer-events: none; }
+.sp-orb.o2 { left: 30%; right: auto; top: auto; bottom: -140px; background: radial-gradient(circle, #19e6c488, transparent 65%); animation-delay: -3s; }
+@keyframes spShine { to { background-position: 300% 0; } }
+@keyframes spFloat { 50% { transform: translate(-30px, 22px) scale(1.12); } }
+.sp-rail { height: 6px; margin: 18px 0 4px; border-radius: 6px; background: #ffffff14; overflow: hidden; }
+.sp-rail i { display: block; height: 100%; background: linear-gradient(90deg, #19e6c4, #ffb02e, #ff3fa4); animation: spGrow 1.4s var(--ease) both; box-shadow: 0 0 14px #ffb02e; }
+@keyframes spGrow { from { width: 0 !important; } }
+.sp-lab { display: flex; justify-content: space-between; color: var(--dim); font-family: var(--cond); letter-spacing: 0.3em; font-size: 12px; margin: 6px 4px; }
+.sp-track { display: flex; gap: 12px; overflow-x: auto; padding: 14px 6px 24px; perspective: 900px; scrollbar-width: thin; }
+.sp-col { flex: none; width: 120px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.sp-node { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: #14171c; border: 2px solid #ffffff22; font-family: var(--cond); }
+.sp-col.past .sp-node { border-color: #19e6c4; box-shadow: 0 0 14px #19e6c455; }
+.sp-col.now .sp-node { border-color: #ffb02e; animation: spPulse 1.4s infinite; }
+@keyframes spPulse { 0% { box-shadow: 0 0 0 0 #ffb02eaa; } 100% { box-shadow: 0 0 0 16px #ffb02e00; } }
+.sp-card { width: 116px; min-height: 124px; border-radius: 14px; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; position: relative; background: linear-gradient(160deg, #1e2230, #12141b); border: 1px solid #ffffff1a; transform: rotateX(var(--rx, 0)) rotateY(var(--ry, 0)); transition: transform 0.15s, box-shadow 0.3s; animation: spIn 0.6s var(--ease) both; }
+.sp-card.premium { background: linear-gradient(160deg, #3b1d52, #1b0f26); border-color: #c77dff66; }
+.sp-card.big { min-height: 150px; border-color: #ffb02e; }
+.sp-card.lock { opacity: 0.45; }
+.sp-card.got { border-color: #19e6c4aa; }
+.sp-card.ready { cursor: pointer; border-color: #ffb02e; box-shadow: 0 0 22px #ffb02e66; animation: spIn 0.6s var(--ease) both, spBob 1.6s ease-in-out infinite 0.6s; }
+.sp-card.ready::after { content: ''; position: absolute; inset: 0; border-radius: 14px; background: linear-gradient(110deg, transparent 30%, #ffffff55 50%, transparent 70%); background-size: 250% 100%; animation: spSweep 2.2s linear infinite; pointer-events: none; }
+.sp-card.pop { animation: spPop 0.6s forwards; }
+.sp-ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: #ffffff10; color: #ffd27a; }
+.sp-ico svg { width: 22px; height: 22px; }
+.sp-txt { font-size: 11px; line-height: 1.3; color: var(--muted); }
+.sp-ok { position: absolute; top: 6px; right: 6px; color: #19e6c4; }
+.sp-ok svg { width: 16px; height: 16px; }
+@keyframes spIn { from { opacity: 0; transform: translateY(26px) rotateX(40deg); } }
+@keyframes spBob { 50% { translate: 0 -5px; } }
+@keyframes spSweep { to { background-position: -150% 0; } }
+@keyframes spPop { 40% { transform: scale(1.25); filter: brightness(2); } 100% { transform: scale(0.8); opacity: 0.3; } }
+.confetti { position: fixed; width: 8px; height: 12px; z-index: 90; pointer-events: none; animation: conf 1.2s cubic-bezier(.2, .8, .3, 1) forwards; }
+@keyframes conf { to { transform: translate(var(--dx), calc(var(--dy) + 340px)) rotate(var(--rot)); opacity: 0; } }
+
+.arch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.arch { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--line2); background: linear-gradient(160deg, #1c2029, #12151b); color: var(--text); cursor: pointer; animation: spIn 0.5s var(--ease) both; transition: transform 0.15s, border-color 0.15s, box-shadow 0.2s; }
+.arch:hover { transform: translateY(-3px); border-color: #ffb02e; box-shadow: 0 6px 18px #ffb02e33; }
+.arch b { font-family: var(--cond); letter-spacing: 0.1em; text-transform: uppercase; font-size: 14px; }
+.arch small { color: var(--dim); font-size: 11px; line-height: 1.25; }

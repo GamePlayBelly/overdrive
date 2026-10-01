@@ -1,0 +1,12 @@
+import { launch, shot, sleep } from './harness.mjs';
+const MODEL = process.env.MODEL || 'yacht', TAB = (process.env.TAB || 'boat').toLowerCase();
+const { page, close, logs } = await launch({ width: 1440, height: 810 });
+await page.waitForFunction(() => window.__app?.mode === 'play', null, { timeout: 240000 });
+await sleep(1500);
+await page.evaluate((m) => { const a = window.__app; a.openMenu('vehicles'); a.menu.go('vehicles', { model: m, force: true }); }, MODEL);
+await sleep(1500);
+await page.evaluate((TAB) => { const t = [...document.querySelectorAll('button, div, span')].find((e) => e.children.length === 0 && e.textContent.trim().toLowerCase() === TAB); t?.click(); }, TAB);
+await sleep(1500);
+await shot(page, 'shop_' + MODEL);
+console.log('errs:', logs.filter((l) => !/getImageData|favicon/.test(l)).join('\n') || 'none');
+await close(); process.exit(0);

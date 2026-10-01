@@ -1,0 +1,78 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>car studio</title>
+<style>html,body{margin:0;background:#111;overflow:hidden}canvas{display:block}</style>
+<script type="importmap">{ "imports": { "three": "../node_modules/three/build/three.module.js", "three/addons/": "../node_modules/three/examples/jsm/" } }</script>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { createCarMesh } from '../src/vehicles/carMesh.js';
+import { VEHICLE_BY_ID } from '../src/data/vehicles.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const q = new URLSearchParams(location.search);
+const id = q.get('car') || 'gts', color = q.get('color') || '#7a1f23', W = +q.get('w') || 1600, H = +q.get('h') || 900;
+const views = (q.get('views') || 'front34,rear34,side,top').split(',');
+const open = (q.get('open') || '').split(',').filter(Boolean);
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H); renderer.setPixelRatio(1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = +q.get('exp') || 0.9;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(q.get('bg') || '#8f959b');
+const pm = new THREE.PMREMGenerator(renderer);
+const envKind = q.get('env') || 'room';
+if (envKind === 'room') scene.environment = pm.fromScene(new RoomEnvironment(), 0.03).texture;
+else {
+  const es = new THREE.Scene();
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, vertexShader: 'varying vec3 p; void main(){ p = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }', fragmentShader: 'varying vec3 p; void main(){ vec3 d = normalize(p); float e = d.y; vec3 c = e > 0.0 ? mix(vec3(0.62,0.72,0.86), vec3(0.18,0.34,0.7), pow(e, 0.45)) : vec3(0.2,0.2,0.2); float sd = max(dot(d, normalize(vec3(0.4,0.6,0.5))), 0.0); c += vec3(1.0,0.9,0.7) * (pow(sd, 40.0) * 3.0 + pow(sd, 6.0) * 0.4); gl_FragColor = vec4(c, 1.0); }' }));
+  es.add(dome);
+  scene.environment = pm.fromScene(es, 0.02).texture;
+}
+scene.environmentIntensity = 1.0;
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: q.get('floor') || '#555a60', roughness: 0.85 }));
+floor.receiveShadow = true; scene.add(floor);
+const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(5, 9, 6); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048); const sc = sun.shadow.camera; sc.left = -6; sc.right = 6; sc.top = 6; sc.bottom = -6; sc.near = 1; sc.far = 30; sun.shadow.bias = -0.0004;
+scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x555555, 0.35));
+
+const def = VEHICLE_BY_ID[id];
+const custom = { color, doors: q.get('doors') !== '0' };
+if (q.get('spoiler')) custom.spoiler = q.get('spoiler');
+if (q.get('rims')) custom.rims = q.get('rims');
+const car = createCarMesh(def, custom);
+scene.add(car.group);
+const hide = (q.get('hide') || '').split(',').filter(Boolean);
+for (const k of hide) { if (car.meshes[k]) car.meshes[k].visible = false; }
+if (hide.includes('panels') && car.panels) for (const k in car.panels) car.panels[k].visible = false;
+if (hide.includes('interior')) car.group.children.forEach((c) => { if (c.isMesh && c.material === car.mats.trim && !Object.values(car.meshes).includes(c)) c.visible = false; });
+car.group.traverse((o) => { if (o.isMesh) { o.castShadow = o.castShadow || true; } });
+const b = def.body, L = b.L, Wd = b.W, Ht = b.roofY || b.H;
+const lights = car.mats.lights; if (lights?.userData?.uLight) lights.userData.uLight.value.set(q.get('lights') === '1' ? 1 : 0, q.get('brake') === '1' ? 1 : 0, 0, 0);
+
+const cam = new THREE.PerspectiveCamera(+q.get('fov') || 32, (W / 2) / (H / 2), 0.1, 100);
+const cx = [], R = Math.max(L, 5) * 1.45;
+const VIEW = {
+  front34: [R * 0.62, Ht * 0.62, R * 0.78, 0, Ht * 0.42, 0],
+  rear34: [R * 0.62, Ht * 0.62, -R * 0.78, 0, Ht * 0.42, 0],
+  side: [R * 1.1, Ht * 0.5, 0, 0, Ht * 0.45, 0],
+  top: [0.01, R * 1.25, 0.01, 0, 0, 0],
+  front: [0, Ht * 0.55, R * 1.0, 0, Ht * 0.45, 0],
+  rear: [0, Ht * 0.6, -R * 1.0, 0, Ht * 0.45, 0],
+  rearlow: [R * 0.3, Ht * 0.4, -R * 0.75, 0, Ht * 0.5, -0.5],
+  frontlow: [R * 0.38, Ht * 0.34, R * 0.6, 0, Ht * 0.45, 0.4],
+  wheel: [R * 0.5, Ht * 0.28, L * 0.45 + 1.2, 0, 0.3, L * 0.3],
+};
+const cols = views.length > 2 ? 2 : views.length, rows = Math.ceil(views.length / cols);
+renderer.setScissorTest(true);
+const cw = W / cols, ch = H / rows; cam.aspect = cw / ch; cam.updateProjectionMatrix();
+views.forEach((v, i) => {
+  const p = VIEW[v] || VIEW.front34;
+  cam.position.set(p[0], p[1], p[2]); cam.lookAt(p[3], p[4], p[5]);
+  const x = (i % cols) * cw, y = H - (Math.floor(i / cols) + 1) * ch;
+  renderer.setViewport(x, y, cw, ch); renderer.setScissor(x, y, cw, ch);
+  renderer.render(scene, cam);
+});
+window.__done = true;
+</script></body></html>

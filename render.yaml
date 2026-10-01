@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: overdrive
+    runtime: node
+    buildCommand: npm install --omit=dev
+    startCommand: node server.mjs
+    plan: free

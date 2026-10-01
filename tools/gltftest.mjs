@@ -1,0 +1,32 @@
+import { launch, shot, sleep } from './harness.mjs';
+import fs from 'node:fs';
+// Exports the procedural Civa to a .glb, points the manifest at it, reloads and checks that the glTF path builds a working car.
+const { page, close, logs } = await launch({ width: 960, height: 540 });
+await page.waitForFunction(() => window.__game && window.__game.player?.vehicle, null, { timeout: 240000 });
+const b64 = await page.evaluate(async () => {
+  const THREE = window.__THREE;
+  const { createCarMesh } = await import('/src/vehicles/carMesh.js');
+  const { VEHICLE_BY_ID } = await import('/src/data/vehicles.js');
+  const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
+  const car = createCarMesh(VEHICLE_BY_ID.civa, { doors: false });
+  car.mats.paint.name = 'paint'; car.mats.glass.name = 'glass';
+  const names = ['wheel_fl', 'wheel_fr', 'wheel_rl', 'wheel_rr'];
+  car.wheels.forEach((w, i) => { const f = names.find((n) => n === 'wheel_' + (w.front ? 'f' : 'r') + (w.left ? 'l' : 'r')); w.pivot.name = f || names[i]; });
+  const out = new THREE.Group(); out.add(car.group);
+  const buf = await new Promise((res, rej) => new GLTFExporter().parse(out, res, rej, { binary: true }));
+  let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000));
+  return btoa(s);
+});
+fs.mkdirSync('assets/models', { recursive: true });
+fs.writeFileSync('assets/models/civa_test.glb', Buffer.from(b64, 'base64'));
+fs.writeFileSync('assets/models/manifest.json', JSON.stringify({ 'car:civa': { file: 'civa_test.glb', scale: 1 } }));
+console.log('exported bytes', fs.statSync('assets/models/civa_test.glb').size);
+await page.reload();
+await page.waitForFunction(() => window.__game && window.__game.player?.vehicle, null, { timeout: 240000 });
+const info = await page.evaluate(() => { const v = window.__game.player.vehicle; return JSON.stringify({ def: v.def.id, wheels: v.car.wheels.length, meshes: Object.keys(v.car.meshes), gltf: !v.car.geo.P && !v.car.split }); });
+console.log(info);
+await page.evaluate(() => { window.__pauseLoop = true; const g = window.__game; g.sky.time = 11; g.sky.lockWeather = 'sunny'; g.sky.setWeather('sunny', true); const v = g.player.vehicle; v.input.throttle = 1; for (let i = 0; i < 180; i++) g.update(1 / 60); g.render(1 / 60); });
+console.log(await shot(page, 'gltf_car'));
+console.log('logs:', logs.filter((l) => !/getImageData/.test(l)).slice(0, 6).join('\n') || 'none');
+fs.rmSync('assets/models/civa_test.glb'); fs.rmSync('assets/models/manifest.json');
+await close(); process.exit(0);
