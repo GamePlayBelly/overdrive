@@ -1,32 +1,11 @@
 import * as THREE from 'three';
 import * as SY from './synth.js';
-import { STRIDE, P } from './engineDSP.js';
+import { VehicleAudio, VOICES } from './vehicleAudio.js';
+import { AcousticEnv } from './environment.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 const SURF_STEP = ['grass', 'concrete', 'concrete', 'gravel', 'sand', 'sand', 'sand', 'concrete', 'concrete', 'grass'];
-
-function engineKind(def) {
-  if (def.air) return def.air === 'jet' ? 3 : def.air === 'heli' ? 1 : 2;
-  if (def.boat) return def.boat === 'jetski' || def.boat === 'rib' ? 2 : def.boat === 'sport' ? 3 : 1;
-  const st = def.body.style;
-  if (st === 'bike') return 2;
-  if (st === 'bus' || st === 'truck' || st === 'van') return 1;
-  return (def.sound?.cyl || 4) >= 8 ? 3 : 0;
-}
-
-// Approximate rpm for kinematic (AI) vehicles from speed
-function fakeRpm(def, speed) {
-  const p = def.perf, wr = def.body.wr;
-  if (speed < 0.4) return { rpm: 820, gear: 1 };
-  let best = 1, bestRpm = 0;
-  for (let g = 1; g <= p.gears.length; g++) {
-    const rpm = ((speed / wr) * p.gears[g - 1] * p.final * 60) / (Math.PI * 2);
-    best = g; bestRpm = rpm;
-    if (rpm < p.redline * 0.62) break;
-  }
-  return { rpm: Math.max(820, bestRpm), gear: best };
-}
 
 export class AudioSystem {
   constructor() {
@@ -34,8 +13,6 @@ export class AudioSystem {
     this.vol = { master: 0.8, engine: 0.9, effects: 0.9, music: 0.45, ambience: 0.7, voice: 0.9, radio: 0.8 };
     this.buf = {};
     this.variants = {};
-    this.engParams = new Float32Array(STRIDE * 6);
-    this.tEng = 0;
     this.voices = [];
     this.prev = new Map();
     this.stepT = 0; this.gullT = 4; this.birdT = 2; this.siren = new Map();
@@ -58,15 +35,19 @@ export class AudioSystem {
       comp.threshold.value = -14; comp.knee.value = 18; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
       this.master = ctx.createGain(); this.master.gain.value = this.vol.master;
       comp.connect(this.master); this.master.connect(ctx.destination);
+      this.comp = comp;
+      // vehicles and effects pass through the acoustic environment (EQ + reverb); voice, music, ambience and UI stay dry
+      this.env = new AcousticEnv(this);
       this.bus = {};
-      for (const k of ['engine', 'sfx', 'voice', 'amb', 'music', 'ui', 'tires']) { const g = ctx.createGain(); g.connect(comp); this.bus[k] = g; }
+      for (const k of ['engine', 'sfx', 'voice', 'amb', 'music', 'ui', 'tires']) { const g = ctx.createGain(); g.connect(k === 'engine' || k === 'sfx' || k === 'tires' ? this.env.input : comp); this.bus[k] = g; }
+      this.veh = new VehicleAudio(this);
       this.setVolumes(this.vol);
       this.listener = ctx.listener;
       this.buildLoops();
       this.loadingPromise = this.renderSamples();
       try {
         await ctx.audioWorklet.addModule(new URL('./engine.worklet.js', import.meta.url).href);
-        this.bankNode = new AudioWorkletNode(ctx, 'engine-bank', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { voices: 6 } });
+        this.bankNode = new AudioWorkletNode(ctx, 'engine-bank', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { voices: VOICES } });
         this.bankNode.connect(this.bus.engine);
       } catch (e) { console.warn('engine worklet unavailable', e); this.bankNode = null; }
       await this.loadingPromise;
@@ -120,6 +101,7 @@ export class AudioSystem {
     const mkLayer = (bus) => { const g = ctx.createGain(); g.gain.value = 0; g.connect(bus); return g; };
     this.L.wind = { out: mkLayer(this.bus.amb) }; this.L.road = { out: mkLayer(this.bus.tires) }; this.L.squeal = { out: mkLayer(this.bus.tires) }; this.L.grit = { out: mkLayer(this.bus.tires) };
     this.L.city = { out: mkLayer(this.bus.amb) }; this.L.sea = { out: mkLayer(this.bus.amb) }; this.L.forest = { out: mkLayer(this.bus.amb) }; this.L.rain = { out: mkLayer(this.bus.amb) }; this.L.night = { out: mkLayer(this.bus.amb) };
+    this.L.spray = { out: mkLayer(this.bus.tires) }; this.L.brake = { out: mkLayer(this.bus.tires) }; this.L.roof = { out: mkLayer(this.bus.amb) };
     this.L.hornG = mkLayer(this.bus.sfx);
   }
 
@@ -138,6 +120,9 @@ export class AudioSystem {
     L.sea.src = chain(Lp.waves, L.sea.out);
     L.forest.hp = bq('highpass', 300); L.forest.lp = bq('lowpass', 2500); L.forest.src = chain(Lp.pink, L.forest.out, [L.forest.hp, L.forest.lp]);
     L.rain.src = chain(Lp.rain, L.rain.out);
+    L.spray.bp = bq('bandpass', 2800, 0.7); L.spray.hp = bq('highpass', 1400, 0.6); L.spray.src = src(Lp.white); L.spray.src.connect(L.spray.bp); L.spray.bp.connect(L.spray.hp); L.spray.hp.connect(L.spray.out);
+    L.brake.bp = bq('bandpass', 3600, 1.4); L.brake.src = chain(Lp.white, L.brake.out, [L.brake.bp]);
+    L.roof.lp = bq('lowpass', 1700, 0.5); L.roof.src = chain(Lp.rain, L.roof.out, [L.roof.lp]);
     L.night.src = chain(this.buf.cricket, L.night.out);
   }
 
@@ -248,52 +233,9 @@ export class AudioSystem {
     const interior = pv && mode === 'cockpit';
     const semi = pv && (mode === 'hood' || mode === 'bumper');
     const sky = game.sky;
-    // -------- engines --------
-    this.tEng -= dt;
-    if (this.bankNode && this.tEng <= 0) {
-      this.tEng = 1 / 40;
-      const A = this.engParams; A.fill(0);
-      let n = 0;
-      const put = (def, o) => {
-        if (n >= 6) return;
-        const b = n * STRIDE;
-        A[b + P.active] = 1; A[b + P.rpm] = o.rpm; A[b + P.load] = o.load; A[b + P.gain] = o.gain; A[b + P.pan] = o.pan; A[b + P.cyl] = def.sound?.cyl || 4; A[b + P.rough] = def.sound?.rough ?? 0.3;
-        A[b + P.pitch] = def.sound?.pitch || 1; A[b + P.kind] = engineKind(def); A[b + P.lp] = o.lp; A[b + P.turbo] = o.turbo || 0; A[b + P.cut] = o.cut || 0; A[b + P.whine] = o.whine || 0; A[b + P.whineHz] = o.whineHz || 0;
-        n++;
-      };
-      if (pv) {
-        const ph = pv.phys;
-        const start = this.startT > 0 ? clamp(1 - this.startT / 1.1, 0, 1) : 1;
-        const run = ph.engineOn ? start : 0;
-        const nearLoad = clamp(ph.thrIn * (ph.shiftT > 0 ? 0.25 : 1), 0, 1);
-        const gain = (interior ? 0.62 : semi ? 0.75 : 0.9) * run * (ph.engineOn ? 1 : 0);
-        put(pv.def, { rpm: Math.max(ph.rpm, ph.engineOn ? pv.def.perf.redline * 0.1 : 0), load: nearLoad, gain, pan: 0, lp: interior ? 0.34 : semi ? 0.55 : 1, turbo: (ph.tune?.turbo ? clamp(nearLoad * ph.rpm / ph.redline, 0, 1) * (ph.tune.turbo / 3) : 0) + ph.boost * 0.7, cut: ph.limiter, whine: 0.25 * nearLoad * (ph.gear <= 3 ? 1 : 0.5), whineHz: ph.speed * 24 + 120 });
-      }
-      // other vehicles nearby
-      const cand = [];
-      const cp = cam.position;
-      for (const v of game.vehicles) { if (v === pv || v.driver === null && v.speed < 0.3) continue; const dx = v.x - cp.x, dz = v.z - cp.z; const d2 = dx * dx + dz * dz; if (d2 < 120 * 120) cand.push({ def: v.def, x: v.x, y: v.y, z: v.z, vx: v.phys.vx, vz: v.phys.vz, speed: v.speed, d2, id: v.id, accel: v.phys.axF, obj: v }); }
-      if (game.traffic) for (const c of game.traffic.cars) { if (c.state === 'parked') continue; const dx = c.x - cp.x, dz = c.z - cp.z; const d2 = dx * dx + dz * dz; if (d2 < 100 * 100) cand.push({ def: c.def, x: c.x, y: c.y, z: c.z, vx: c.phys ? c.phys.vx : Math.sin(c.yaw) * c.v, vz: c.phys ? c.phys.vz : Math.cos(c.yaw) * c.v, speed: c.speed, d2, id: c.id, accel: 0, obj: c }); }
-      cand.sort((a, b) => a.d2 - b.d2);
-      const right = _r.set(1, 0, 0).applyQuaternion(cam.quaternion);
-      const cv = pv ? pv.phys : null;
-      for (let i = 0; i < cand.length && n < 6; i++) {
-        const c = cand[i], d = Math.sqrt(c.d2) + 0.1;
-        const fr = c.obj && c.obj.isBoat ? { rpm: c.obj.phys.rpm, gear: 1 } : fakeRpm(c.def, c.speed);
-        const prev = this.prev.get(c.id) || { speed: c.speed };
-        const acc = clamp((c.speed - prev.speed) / Math.max(dt, 1e-3), -8, 8); prev.speed = c.speed; this.prev.set(c.id, prev);
-        const load = clamp(0.18 + Math.max(0, acc) * 0.16 + (c.speed > 1 ? 0.1 : 0), 0.1, 1);
-        const dx = (c.x - cp.x) / d, dz = (c.z - cp.z) / d;
-        const radial = ((c.vx - (cv ? cv.vx : 0)) * dx + (c.vz - (cv ? cv.vz : 0)) * dz);
-        const dop = 343 / (343 + radial);
-        const g = clamp(9 / (d + 6), 0, 0.55) * (c.def.body.style === 'bike' ? 0.8 : 1);
-        if (g < 0.02) continue;
-        const pan = clamp((dx * right.x + dz * right.z), -1, 1);
-        put(c.def, { rpm: fr.rpm * dop, load, gain: g, pan, lp: clamp(1 - d / 160, 0.12, 0.85) * (interior ? 0.55 : 1), whine: 0 });
-      }
-      if (this.prev.size > 200) this.prev.clear();
-      this.bankNode.port.postMessage({ p: A });
-    }
+    // -------- vehicles: engines, tyres, wind, brakes (vehicleAudio.js) and the acoustic environment (environment.js) --------
+    this.env.update(game, dt, this.zone.rain, !!game.indoor);
+    this.veh.update(game, dt, { interior, semi, enclosure: this.env.enclosure, inside: this.env.inside });
     this.startT = Math.max(0, this.startT - dt);
     // horns and sirens
     for (const v of game.vehicles) {
@@ -303,29 +245,8 @@ export class AudioSystem {
       const s = this.sirenOn(v, sr, { x: v.x, y: v.y, z: v.z });
       if (s) { s.t += dt; const w = 0.5 + 0.5 * Math.sin(s.t * 2.6 - 1.57), yelp = Math.sin(s.t * 0.4) > 0.6 ? 1 : 0; const f = yelp ? 900 + 500 * (0.5 + 0.5 * Math.sin(s.t * 14)) : 620 + 640 * w; s.o.frequency.setTargetAtTime(f, t, 0.02); s.o2.frequency.setTargetAtTime(f * 2.01, t, 0.02); }
     }
-    // -------- tires / wind / road --------
     const S = this.state, L2 = this.L;
     const set = (g, v, tc = 0.06) => g.gain.setTargetAtTime(v, t, tc);
-    if (pv) {
-      const ph = pv.phys, sp = ph.speed;
-      const interiorK = interior ? 0.55 : 1;
-      const spW = ph.sail ? ph.aws * 3.4 : sp;
-      const wind = clamp((spW - 8) / 55, 0, 1) ** 1.6;
-      set(L2.wind.out, wind * 0.65 * interiorK * (this.zone.rain > 0.5 ? 1.1 : 1)); L2.wind.lp.frequency.setTargetAtTime(500 + spW * 26, t, 0.1);
-      const boat = !!pv.isBoat;
-      const asph = ph.surfF === 1 || ph.surfF === 2 || ph.surfF === 8;
-      const roadK = clamp(sp / 35, 0, 1);
-      if (boat) { set(L2.road.out, clamp(sp / 22, 0, 1) * (0.25 + 0.3 * ph.planing) * interiorK * (ph.wetN > 0 ? 1 : 0.15)); L2.road.lp.frequency.setTargetAtTime(700 + sp * 70 + ph.planing * 500, t, 0.1); }
-      else set(L2.road.out, roadK * (asph ? 0.3 : 0.5) * interiorK); if (!boat) L2.road.lp.frequency.setTargetAtTime(asph ? 260 + sp * 14 : 420 + sp * 30, t, 0.1);
-      const sq = boat ? 0 : clamp(Math.max(ph.skidF * 0.6, ph.skidR), 0, 1) * (ph.onGround ? 1 : 0);
-      const sqOn = asph ? sq : 0;
-      set(L2.squeal.out, sqOn * sqOn * 0.5 * (interior ? 0.6 : 1), 0.04);
-      const fs = 900 + clamp(sp / 40, 0, 1) * 800 + ph.slipAngle * 900 + Math.sin(t * 37) * 40 * sq;
-      L2.squeal.bp.frequency.setTargetAtTime(fs, t, 0.03); L2.squeal.bp2.frequency.setTargetAtTime(fs * 1.9 + Math.sin(t * 21) * 60, t, 0.03);
-      const gr = boat ? 0 : !asph ? clamp(sp / 25, 0, 1) * (ph.onGround ? 1 : 0) * (0.35 + sq * 0.6) : sq * 0.15;
-      set(L2.grit.out, gr * 0.6 * interiorK, 0.08); L2.grit.lp.frequency.setTargetAtTime(1200 + sp * 60, t, 0.1);
-      S.skid = sq;
-    } else { for (const k of ['wind', 'road', 'squeal', 'grit']) set(L2[k].out, 0, 0.1); }
     // tick of indicators
     if (pv) {
       const v = pv, l = v.lights, on = (l.indL || l.indR || l.hazard);
@@ -346,11 +267,15 @@ export class AudioSystem {
     const tNight = sky.night;
     const k = 1 - Math.exp(-dt * 0.6);
     Z.city += (tCity - Z.city) * k; Z.sea += (tSea - Z.sea) * k; Z.forest += (tForest - Z.forest) * k; Z.night += (tNight - Z.night) * k; Z.rain += (rainI - Z.rain) * k;
-    const inside = interior ? 0.5 : 1;
+    const inside = (interior ? 0.5 : 1) * (1 - 0.7 * this.env.inside);
     set(L2.city.out, (0.06 + Z.city * 0.22) * (1 - Z.night * 0.4) * inside, 0.4); L2.city.lp.frequency.setTargetAtTime(280 + Z.city * 500, t, 0.4);
     set(L2.sea.out, Z.sea * 0.55 * inside, 0.5);
     set(L2.forest.out, Z.forest * 0.13 * (1 - Z.rain * 0.4) * inside, 0.5);
-    set(L2.rain.out, Z.rain * 0.5 * (interior ? 0.7 : 1), 0.4);
+    const bikeView = pv && pv.def.body.style === 'bike';
+    set(L2.rain.out, Z.rain * 0.5 * (interior ? 0.55 : 1) * (1 - 0.6 * this.env.inside), 0.4);
+    // rain drumming on the roof in a closed cabin, on the helmet on a bike; a duller patter in a covered street
+    set(L2.roof.out, Z.rain * (interior ? 0.55 : bikeView && mode === 'cockpit' ? 0.2 : 0) + Z.rain * this.env.inside * 0.3, 0.4);
+    L2.roof.lp.frequency.setTargetAtTime(interior ? 1500 : 2600, t, 0.4);
     set(L2.night.out, Z.night * Z.forest * 0.3, 0.6);
     // random natural one-shots
     this.gullT -= dt; this.birdT -= dt;
@@ -363,10 +288,20 @@ export class AudioSystem {
     } else this.stepT = 0;
   }
 
+  // on-foot jump, landing and vault sounds, by the surface underfoot
+  footImpact(surf, pos, power, kind = 'land') {
+    if (!this.ready) return;
+    const name = 'step_' + (SURF_STEP[surf] || 'concrete');
+    if (kind === 'jump') { this.play(name, { vol: 0.2 + power * 0.1, pos, refDist: 3, rate: 1.25 }); return; }
+    this.play(name, { vol: clamp(0.3 + power * 0.07, 0.3, 0.9), pos, refDist: 4, rate: 0.8 });
+    if (power > 3) this.play('thud', { vol: clamp(power * 0.06, 0.1, 0.5), pos, rate: 1.1, refDist: 4, delay: 0.02 });
+    if (kind === 'vault') this.play('bodyhit', { vol: 0.12, pos, rate: 1.6, refDist: 3, delay: 0.05 });
+  }
+
   // called when the player sits in
   engineStart(v) {
     if (!this.ready) return;
-    this.play('starter', { vol: 0.5, pos: v ? { x: v.x, y: v.y, z: v.z } : undefined, refDist: 3, jitter: 0.02 });
+    this.play('starter', { vol: 0.28, pos: v ? { x: v.x, y: v.y, z: v.z } : undefined, refDist: 3, jitter: 0.02 });
     this.startT = 1.15;
   }
 }

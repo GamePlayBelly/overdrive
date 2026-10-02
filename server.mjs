@@ -12,6 +12,7 @@ const TYPES = {
   '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.ico': 'image/x-icon', '.woff2': 'font/woff2',
 };
 
+let game = null;
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/api/debug/shot' && req.method === 'POST') {
@@ -27,8 +28,14 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
-  if (url.pathname.startsWith('/api/')) return;
-  let p = decodeURIComponent(url.pathname);
+  if (url.pathname === '/healthz' || url.pathname === '/api/status') {
+    const st = game ? game.status() : {};
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' }).end(JSON.stringify({ ok: true, ...st }));
+    return;
+  }
+  if (url.pathname.startsWith('/api/')) { res.writeHead(404).end('not found'); return; }
+  let p;
+  try { p = decodeURIComponent(url.pathname); } catch { res.writeHead(400).end('bad request'); return; }
   if (p === '/') p = '/index.html';
   // /w/<path>: same file with the bare 'three' specifiers made absolute, because import maps do not apply inside workers
   const asWorker = p.startsWith('/w/');
@@ -54,5 +61,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-attachGameServer(server, path.join(ROOT, 'data'));
-server.listen(PORT, () => console.log(`Real World — Riverton County  http://localhost:${PORT}`));
+process.on('uncaughtException', (e) => console.error('uncaught', e));
+process.on('unhandledRejection', (e) => console.error('unhandled', e));
+game = attachGameServer(server, process.env.DATA_DIR || path.join(ROOT, 'data'));
+server.listen(PORT, '0.0.0.0', () => console.log(`Real World — Riverton County  http://localhost:${PORT}`));

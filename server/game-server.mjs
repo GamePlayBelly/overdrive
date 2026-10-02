@@ -20,8 +20,8 @@ function encode(str) {
 class Conn {
   constructor(socket, onMessage, onClose) {
     this.socket = socket; this.buf = Buffer.alloc(0); this.frag = null;
-    this.onMessage = onMessage; this.onClose = onClose; this.alive = true;
-    socket.on('data', (d) => { this.buf = Buffer.concat([this.buf, d]); this.parse(); });
+    this.onMessage = onMessage; this.onClose = onClose; this.alive = true; this.rx = Date.now();
+    socket.on('data', (d) => { this.rx = Date.now(); this.buf = Buffer.concat([this.buf, d]); this.parse(); });
     socket.on('close', () => this.close()); socket.on('error', () => this.close());
   }
   parse() {
@@ -39,20 +39,22 @@ class Conn {
       if (masked) { const m = b.subarray(off, off + 4); const out = Buffer.alloc(len); for (let i = 0; i < len; i++) out[i] = payload[i] ^ m[i & 3]; payload = out; }
       this.buf = b.subarray(off + mlen + len);
       if (op === 8) { this.close(); return; }
-      if (op === 9) { this.socket.write(Buffer.concat([Buffer.from([0x8a, payload.length]), payload])); continue; }
+      if (op === 9) { if (payload.length < 126) this.socket.write(Buffer.concat([Buffer.from([0x8a, payload.length]), payload])); continue; }
+      if (op === 10) continue;
       if (op === 1 || op === 0 || op === 2) {
         this.frag = this.frag ? Buffer.concat([this.frag, payload]) : payload;
         if (fin) { const s = this.frag.toString(); this.frag = null; try { this.onMessage(s); } catch (e) { console.error('ws message error', e.message); } }
       }
     }
   }
+  ping() { if (this.alive) { try { this.socket.write(Buffer.from([0x89, 0])); } catch { this.close(); } } }
   send(obj) { if (this.alive) { try { this.socket.write(encode(JSON.stringify(obj))); } catch { this.close(); } } }
   close() { if (!this.alive) return; this.alive = false; try { this.socket.destroy(); } catch { /* closed */ } this.onClose(); }
 }
 
 export function attachGameServer(httpServer, dataDir = 'data') {
   const file = path.join(dataDir, 'server.json');
-  let db = { profiles: {}, friends: {}, crews: {}, boards: {} };
+  let db = { profiles: {}, friends: {}, crews: {}, boards: {}, claims: {} };
   try { db = { ...db, ...JSON.parse(fs.readFileSync(file, 'utf8')) }; } catch { /* first run */ }
   let dirty = false;
   const save = () => { if (!dirty) return; dirty = false; try { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(file, JSON.stringify(db)); } catch (e) { console.error('save failed', e.message); } };
@@ -69,7 +71,8 @@ export function attachGameServer(httpServer, dataDir = 'data') {
 
   const sendFriends = (c) => {
     const f = db.friends[c.id] || { list: [], incoming: [] };
-    const card = (id) => { const o = clients.get(id); const p = db.profiles[id]; return o ? { ...summary(o), online: true } : p ? { id, name: p.name, level: p.level, online: false, color: '#39414a' } : { id, name: 'Unknown', online: false }; };
+
+    const card = (id) => { const o = clients.get(id); const p = db.profiles[id]; return o ? { ...summary(o), online: true, x: o.x, z: o.z } : p ? { id, name: p.name, level: p.level, online: false, color: '#39414a' } : { id, name: 'Unknown', online: false }; };
     c.conn.send({ t: 'friends', friends: f.list.map(card), requests: f.incoming.map(card) });
   };
   const lobbyView = (l) => ({ id: l.id, name: l.name, mode: l.mode, max: l.max, state: l.state, host: l.host, players: [...l.players].map((id) => ({ ...summary(clients.get(id) || { id, name: '?' }), ready: l.ready.has(id) })) });
@@ -82,6 +85,7 @@ export function attachGameServer(httpServer, dataDir = 'data') {
     if (!l.players.size) lobbies.delete(l.id); else { if (l.host === c.id) l.host = [...l.players][0]; pushLobby(l); }
     broadcast(null, { t: 'lobbies-changed' });
   };
+  const syncClaims = (id) => { db.claims[id] = (db.friends[id]?.list || []).slice(); };
   const count = () => broadcast(null, { t: 'count', n: clients.size });
 
   httpServer.on('upgrade', (req, socket) => {
@@ -104,6 +108,18 @@ export function attachGameServer(httpServer, dataDir = 'data') {
         const old = clients.get(pr.id); if (old) old.conn.close();
         me = { id: pr.id, conn, name: P.name, level: P.level, rep: P.rep, color: P.garage.vehicles[0]?.custom?.color || '#888', model: P.garage.vehicles[0]?.model, x: 0, y: 0, z: 0, yaw: 0, speed: 0, lobbyId: null, at: Date.now(), profile: P };
         clients.set(me.id, me);
+        // friend lists survive a server restart: both sides remember each other and hand the list back when they reconnect
+        if (Array.isArray(m.data.friends)) {
+          const mine = (db.friends[me.id] ||= { list: [], incoming: [] });
+          db.claims[me.id] = m.data.friends.filter((x) => typeof x === 'string').slice(0, 200);
+          for (const id of db.claims[me.id]) {
+            if (id === me.id || !db.profiles[id] || !(db.claims[id] || []).includes(me.id) || mine.list.includes(id)) continue;
+            const theirs = (db.friends[id] ||= { list: [], incoming: [] });
+            mine.list.push(id); if (!theirs.list.includes(me.id)) theirs.list.push(me.id);
+            mine.incoming = mine.incoming.filter((x) => x !== id); theirs.incoming = theirs.incoming.filter((x) => x !== me.id);
+            touch();
+          }
+        }
         reply({ ok: true, t: 'welcome', you: summary(me), profile: P, players: [...clients.values()].map(summary), count: clients.size });
         sendFriends(me); sendLobbies(me);
         const crewId = Object.keys(db.crews).find((id) => db.crews[id].members.some((x) => x.id === me.id));
@@ -120,7 +136,9 @@ export function attachGameServer(httpServer, dataDir = 'data') {
           if (r.ok) { me.name = me.profile.name; me.level = me.profile.level; me.rep = me.profile.rep; touch(); }
           return reply({ ok: r.ok, error: r.error, grants: r.grants, profile: r.ok ? undefined : me.profile });
         }
-        case 'pos': { me.x = d.x; me.y = d.y; me.z = d.z; me.yaw = d.yaw; me.speed = d.speed; me.model = d.model || me.model; me.color = d.color || me.color; me.at = Date.now(); return; }
+        case 'ping': return reply({ ok: true });
+        case 'player.look': { const p = db.profiles[d.id]; return reply(p ? { ok: true, look: p.avatar } : { ok: false, error: 'Unknown player' }); }
+        case 'pos': { if (![d.x, d.y, d.z, d.yaw, d.speed].every(Number.isFinite)) return; me.x = d.x; me.y = d.y; me.z = d.z; me.yaw = d.yaw; me.speed = d.speed; me.foot = d.foot ? 1 : 0; me.model = d.model || me.model; me.color = d.color || me.color; me.at = Date.now(); return; }
         case 'friends.add': {
           const id = d.id || byCode(String(d.code || '').toUpperCase());
           if (!id || id === me.id || !db.profiles[id]) return reply({ ok: false, error: 'Player not found' });
@@ -128,18 +146,19 @@ export function attachGameServer(httpServer, dataDir = 'data') {
           if (mine.list.includes(id)) return reply({ ok: false, error: 'Already friends' });
           if (mine.incoming.includes(id)) { mine.incoming = mine.incoming.filter((x) => x !== id); mine.list.push(id); theirs.list.push(me.id); }
           else if (!theirs.incoming.includes(me.id)) theirs.incoming.push(me.id);
-          touch(); reply({ ok: true }); sendFriends(me); if (clients.has(id)) sendFriends(clients.get(id));
+          syncClaims(me.id); syncClaims(id); touch(); reply({ ok: true }); sendFriends(me); if (clients.has(id)) sendFriends(clients.get(id));
           return;
         }
         case 'friends.accept': {
           const mine = (db.friends[me.id] ||= { list: [], incoming: [] }), theirs = (db.friends[d.id] ||= { list: [], incoming: [] });
           if (mine.incoming.includes(d.id)) { mine.incoming = mine.incoming.filter((x) => x !== d.id); mine.list.push(d.id); theirs.list.push(me.id); touch(); }
+          syncClaims(me.id); syncClaims(d.id); touch();
           reply({ ok: true }); sendFriends(me); if (clients.has(d.id)) sendFriends(clients.get(d.id));
           return;
         }
         case 'friends.remove': {
           const mine = (db.friends[me.id] ||= { list: [], incoming: [] }), theirs = (db.friends[d.id] ||= { list: [], incoming: [] });
-          mine.list = mine.list.filter((x) => x !== d.id); mine.incoming = mine.incoming.filter((x) => x !== d.id); theirs.list = theirs.list.filter((x) => x !== me.id); touch();
+          mine.list = mine.list.filter((x) => x !== d.id); mine.incoming = mine.incoming.filter((x) => x !== d.id); theirs.list = theirs.list.filter((x) => x !== me.id); syncClaims(me.id); syncClaims(d.id); touch();
           reply({ ok: true }); sendFriends(me); if (clients.has(d.id)) sendFriends(clients.get(d.id));
           return;
         }
@@ -218,19 +237,26 @@ export function attachGameServer(httpServer, dataDir = 'data') {
     });
   });
 
-  // position relay: everybody near you (or in your lobby) at 10 Hz
+  // position relay: everybody near you (or in your lobby) at 10 Hz; the full player list (anywhere on the map) every 2 s for friend locating
+  let tick = 0;
   setInterval(() => {
-    const now = Date.now();
+    const now = Date.now(); tick++;
     for (const a of clients.values()) {
       const peers = [];
       for (const b of clients.values()) {
         if (a === b || now - b.at > 4000) continue;
         const near = Math.hypot(a.x - b.x, a.z - b.z) < 500 || (a.lobbyId && a.lobbyId === b.lobbyId);
-        if (near) peers.push({ id: b.id, n: b.name, x: b.x, y: b.y, z: b.z, yaw: b.yaw, s: b.speed, m: b.model, c: b.color });
+        if (near) peers.push({ id: b.id, n: b.name, x: b.x, y: b.y, z: b.z, yaw: b.yaw, s: b.speed, f: b.foot ? 1 : 0, m: b.model, c: b.color });
       }
       a.conn.send({ t: 'peers', peers });
+      if (tick % 20 === 0) a.conn.send({ t: 'roster', list: [...clients.values()].filter((b) => b !== a).map((b) => ({ id: b.id, n: b.name, level: b.level, x: b.x, z: b.z, m: b.model, c: b.color, lobby: !!b.lobbyId })) });
     }
   }, 100).unref?.();
+  // keep idle proxies from dropping sockets and sweep the dead ones
+  setInterval(() => {
+    const now = Date.now();
+    for (const c of [...clients.values()]) { if (now - c.conn.rx > 45000) c.conn.close(); else c.conn.ping(); }
+  }, 15000).unref?.();
   process.on('exit', save);
-  return { clients, lobbies };
+  return { clients, lobbies, status: () => ({ players: clients.size, lobbies: lobbies.size }) };
 }

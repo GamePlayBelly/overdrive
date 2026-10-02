@@ -15,6 +15,11 @@ export function bindAudio(g) {
   g.on('vehicle:door', (e) => A.door(!e.open, { x: e.v.x, y: e.v.y + 0.8, z: e.v.z }));
   g.on('vehicle:sunk', (e) => A.splash({ x: e.v.x, y: e.v.y, z: e.v.z }, true));
   g.on('player:entered', () => {});
+  // on foot: jumping, landing from a height, vaulting and climbing
+  const surfAt = (e) => g.world.terrain.surfAt(e.x, e.z);
+  g.on('player:jump', (e) => A.footImpact(surfAt(e), { x: e.x, y: e.y, z: e.z }, e.speed || 0, 'jump'));
+  g.on('player:landed', (e) => A.footImpact(surfAt(e), { x: e.x, y: e.y, z: e.z }, e.speed || 0, e.soft ? 'vault' : 'land'));
+  g.on('player:mantle', (e) => A.footImpact(surfAt(e), { x: e.x, y: e.y, z: e.z }, 2, 'vault'));
   g.on('ped:bounce', (e) => A.play('bodyhit', { vol: Math.min(0.7, 0.15 + e.impact * 0.09), pos: { x: e.p.x, y: e.p.y, z: e.p.z }, rate: 0.9 + Math.random() * 0.3, refDist: 5 }));
   g.on('ped:hit', (e) => {
     const pos = { x: e.x, y: e.y, z: e.z };

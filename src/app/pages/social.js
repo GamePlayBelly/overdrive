@@ -1,4 +1,5 @@
 import { h, icon, fmt, btn, tabs, toast, chip, sect, select, modal } from '../ui.js';
+import { NetClient } from '../../net/client.js';
 
 const MODES = [['freeroam', 'Free roam'], ['race', 'Street race'], ['pvd', 'Police vs Drivers'], ['coop', 'Co-op missions'], ['team', 'Team race']];
 const BOARDS = [['level', 'Level'], ['rep', 'Reputation'], ['racesWon', 'Races won'], ['bestDrift', 'Best drift'], ['topSpeed', 'Top speed'], ['distance', 'Distance (km)']];
@@ -6,13 +7,21 @@ const BOARDS = [['level', 'Level'], ['rep', 'Reputation'], ['racesWon', 'Races w
 const connectCard = (app, refresh) => {
   const net = app.net;
   const url = h('input', { class: 'txt', value: net.url || '', style: 'min-width:260px' });
-  return h('div', { class: 'card' }, h('div', { class: 'row wrap' }, icon('wifi'), h('div', { class: 'grow' }, h('div', { class: 'bold' }, net.connected ? `Online as ${net.you?.name || app.profile.name}` : net.state === 'connecting' ? 'Connecting…' : 'Offline'), h('div', { class: 'dim sm' }, net.connected ? `${net.count} player(s) online` : 'Connect to a Real World server to play with friends')), url,
-    net.connected ? btn('Disconnect', { on: () => { net.disconnect(); refresh(); } }) : btn('Connect', { kind: 'primary', on: async () => { net.url = url.value; try { await net.connect(url.value); toast({ title: 'Connected', kind: 'green', icon: 'wifi' }); } catch (e) { toast({ title: 'Connection failed', sub: 'Is the server running? (node server.mjs)', icon: 'x' }); } refresh(); } })));
+  return h('div', { class: 'card' }, h('div', { class: 'row wrap' }, icon('wifi'), h('div', { class: 'grow' }, h('div', { class: 'bold' }, net.connected ? `Online as ${net.you?.name || app.profile.name}` : net.state === 'connecting' ? 'Connecting…' : 'Offline'), h('div', { class: 'dim sm' }, net.connected ? `${net.count} player(s) online` : net.state === 'connecting' ? 'Reaching the server…' : net.lastError ? `${net.lastError} - retrying automatically` : 'Connect to a Real World server to play with friends')), url,
+    net.connected ? btn('Disconnect', { on: () => { net.disconnect(); refresh(); } }) : btn('Connect', { kind: 'primary', on: async () => { net.url = url.value.trim() || NetClient.defaultUrl(); try { await net.connect(net.url, true); toast({ title: 'Connected', kind: 'green', icon: 'wifi' }); } catch (e) { toast({ title: 'Connection failed', sub: (net.lastError || 'Server unreachable') + ' - check the server address', icon: 'x' }); } refresh(); } })));
 };
 
 const person = (p, actions = []) => h('div', { class: 'item', style: 'flex-direction:row;align-items:center;padding:10px 12px' },
   h('div', { style: `width:38px;height:38px;border-radius:50%;background:${p.color || '#39414a'};display:grid;place-items:center;font-weight:800;font-family:var(--cond);font-size:18px;position:relative` }, (p.name || '?')[0].toUpperCase(), p.online ? h('i', { style: 'position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;border-radius:50%;background:var(--green);border:2px solid var(--panel2)' }) : null),
   h('div', { class: 'grow' }, h('div', { class: 'bold' }, p.name), h('div', { class: 'dim sm' }, `Level ${p.level ?? 1}` + (p.status ? `  -  ${p.status}` : ''))), ...actions);
+
+// drive or walk to where a friend currently is (live position from the roster, falling back to the friend card)
+function joinFriend(app, f) {
+  const p = app.net.roster.get(f.id) || app.net.peers.get(f.id) || f;
+  if (!Number.isFinite(p.x) || !Number.isFinite(p.z) || (!p.x && !p.z)) { toast({ title: 'Position unknown yet', sub: 'They are still loading in', icon: 'x' }); return; }
+  app.closeMenu?.();
+  app.fastTravel(p.x + 6, p.z + 6, 0);
+}
 
 export const friendsPage = {
   title: 'Friends',
@@ -26,7 +35,7 @@ export const friendsPage = {
       root.appendChild(h('div', { class: 'row', style: 'margin:14px 0' }, inp, btn('Add friend', { icon: 'plus', kind: 'primary', disabled: !net.connected, on: async () => { const r = await net.request('friends.add', { code: inp.value.trim().toUpperCase() }); toast({ title: r.ok ? 'Request sent' : 'Could not add', sub: r.error, kind: r.ok ? 'green' : '', icon: r.ok ? 'check' : 'x' }); draw(); } })));
       if (net.requests.length) { root.appendChild(sect('Requests')); root.appendChild(h('div', { class: 'grid g-auto-l' }, net.requests.map((r) => person(r, [btn('Accept', { sm: true, kind: 'primary', on: async () => { await net.request('friends.accept', { id: r.id }); draw(); } }), btn('Decline', { sm: true, on: async () => { await net.request('friends.remove', { id: r.id }); draw(); } })])))); }
       root.appendChild(sect('Friends', `${net.friends.length}`));
-      root.appendChild(net.friends.length ? h('div', { class: 'grid g-auto-l' }, net.friends.map((f) => person(f, [btn('Remove', { sm: true, on: async () => { await net.request('friends.remove', { id: f.id }); draw(); } })]))) : h('div', { class: 'empty' }, net.connected ? 'No friends yet. Add someone with their code.' : 'Connect to a server to manage friends.'));
+      root.appendChild(net.friends.length ? h('div', { class: 'grid g-auto-l' }, net.friends.map((f) => person(f, [f.online ? btn('Join', { sm: true, kind: 'primary', on: () => joinFriend(app, f) }) : null, btn('Remove', { sm: true, on: async () => { await net.request('friends.remove', { id: f.id }); draw(); } })]))) : h('div', { class: 'empty' }, net.connected ? 'No friends yet. Add someone with their code.' : 'Connect to a server to manage friends.'));
       root.appendChild(sect('Players online', `${net.players.length}`));
       root.appendChild(net.players.length ? h('div', { class: 'grid g-auto-l' }, net.players.filter((p) => p.id !== net.you?.id).slice(0, 24).map((p) => person({ ...p, online: true }, [btn('Add', { sm: true, on: async () => { const r = await net.request('friends.add', { id: p.id }); toast({ title: r.ok ? 'Request sent' : 'Could not add', sub: r.error, kind: r.ok ? 'green' : '', icon: r.ok ? 'check' : 'x' }); } })]))) : h('div', { class: 'empty' }, 'Nobody else is online right now.'));
     };

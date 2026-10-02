@@ -34,14 +34,16 @@ export class Interiors {
   // building under the player's hands, if any
   doorway() {
     const g = this.g, P = g.player;
-    let best = null, bd = 2.6;
-    g.world.colliders.query(P.x, P.z, 3.5, P.y + 0.2, P.y + 2, (c) => {
-      if (c.kind !== 'building' || c.type !== 'box' || c.removed || c.hx < 3 || c.hz < 3 || c.y1 - Math.max(c.y0, 0) < 3.5) return;
+    let best = null, bd = 3.0;
+    g.world.colliders.query(P.x, P.z, 4.2, P.y + 0.2, P.y + 2, (c) => {
+      // cottages and narrow houses count too (a 3.4 m wide footprint is enough); the room inside is a fixed-size set
+      if (c.kind !== 'building' || c.type !== 'box' || c.removed || c.hx < 1.7 || c.hz < 1.7 || c.y1 - Math.max(c.y0, 0) < 3) return;
       const dx = P.x - c.x, dz = P.z - c.z, lx = dx * c.cos + dz * c.sin, lz = -dx * c.sin + dz * c.cos;
       const ox = Math.max(Math.abs(lx) - c.hx, 0), oz = Math.max(Math.abs(lz) - c.hz, 0), d = Math.hypot(ox, oz);
       if (d >= bd) return;
       const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw), vx = c.x - P.x, vz = c.z - P.z, l = Math.hypot(vx, vz) || 1;
-      if ((fx * vx + fz * vz) / l < 0.1) return;
+      // roughly facing it, or right up against the wall (walking along a facade still offers the door)
+      if ((fx * vx + fz * vz) / l < (d < 1.3 ? -0.35 : 0.1)) return;
       bd = d; best = c;
     });
     if (!best) return null;
@@ -85,7 +87,7 @@ export class Interiors {
     P.place(OX + R.door.x, OZ + R.door.z, 0); P.y = OY; P.vx = P.vz = 0; P.yaw = 0;
     g.rig.footYaw = 0; g.rig.snapBehind();
     g.sky.sun.castShadow = false;
-    this.inside = R;
+    this.inside = R; g.indoor = true;
     g.input.enabled = true; g.input.pressed.clear();
     app.hud.big(d.name, ROLES[d.type] + ' inside', '');
     await Loading.curtain(false);
@@ -105,7 +107,7 @@ export class Interiors {
     const yaw = r.yaw + Math.PI;
     P.place(r.x - Math.sin(r.yaw) * 0.8, r.z - Math.cos(r.yaw) * 0.8, yaw); P.y = g.world.groundY(P.x, P.z, r.y + 2);
     g.rig.footYaw = yaw; g.rig.snapBehind();
-    this.inside = null;
+    this.inside = null; g.indoor = false;
     g.input.enabled = true; g.input.pressed.clear();
     await Loading.curtain(false);
     this.busy = false;

@@ -17,9 +17,11 @@ export async function launch({ width = 1280, height = 720, dpr = 1, query = '?de
     server = spawn(process.execPath, ['server.mjs', String(PORT)], { cwd: ROOT, stdio: 'ignore' });
     for (let i = 0; i < 40 && !(await up(PORT)); i++) await new Promise((r) => setTimeout(r, 150));
   }
-  const args = ['--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=d3d11', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'];
+  const exe = process.env.CHROME_PATH || (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : null);
+  const args = exe ? ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--no-sandbox', '--autoplay-policy=no-user-gesture-required']
+    : ['--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=d3d11', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'];
   if (fastFrames) args.push('--disable-frame-rate-limit', '--disable-gpu-vsync');
-  const browser = await chromium.launch({ channel: 'msedge', headless, args });
+  const browser = await chromium.launch(exe ? { executablePath: exe, headless, args } : { channel: 'msedge', headless, args });
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: dpr });
   const logs = [];
   page.on('pageerror', (e) => { logs.push('PAGEERROR ' + e.message); console.error('pageerror:', e.message); });

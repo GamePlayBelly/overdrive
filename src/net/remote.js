@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createCarMesh } from '../vehicles/carMesh.js';
+import { buildHuman, poseFor, applyPose, blendPose, REST } from '../actors/human.js';
 import { VEHICLE_BY_ID } from '../data/vehicles.js';
 import { MISSIONS } from '../data/missions.js';
 import { wrapAngle } from '../core/math.js';
@@ -28,9 +29,27 @@ export class RemotePlayers {
   }
 
   clear() { for (const r of this.list.values()) this.remove(r); this.list.clear(); }
-  remove(r) { this.g.scene.remove(r.group); r.car.mats.paint?.dispose?.(); }
+  remove(r) { this.g.scene.remove(r.group); r.car?.mats.paint?.dispose?.(); }
+
+  // a player on foot: their own avatar (fetched once from the server), walking, running and jumping with their real speed
+  spawnHuman(p) {
+    const looks = (this.looks ||= new Map());
+    const r = { id: p.id, human: true, def: VEHICLE_BY_ID.civa, group: new THREE.Group(), x: p.x, y: p.y, z: p.z, yaw: p.yaw, phase: 0, t: 0, pose: { ...REST }, model: p.model, foot: true };
+    const build = (look) => {
+      if (r.rig) r.group.remove(r.rig.root);
+      r.rig = buildHuman(look);
+      r.rig.root.rotation.order = 'YXZ'; r.rig.root.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
+      r.group.add(r.rig.root);
+    };
+    build(looks.get(p.id) || undefined);
+    const tag = nameTag(p.name || 'Player'); tag.position.set(0, 2.15, 0); r.group.add(tag); r.tag = tag;
+    if (!looks.has(p.id)) { looks.set(p.id, null); this.app.net.request('player.look', { id: p.id }).then((res) => { if (res.ok && res.look) { looks.set(p.id, res.look); try { build(res.look); } catch (e) { console.warn('remote look', e); } } else looks.delete(p.id); }); }
+    this.g.scene.add(r.group);
+    return r;
+  }
 
   spawn(p) {
+    if (p.foot) return this.spawnHuman(p);
     const def = VEHICLE_BY_ID[p.model] || VEHICLE_BY_ID.civa;
     const car = createCarMesh(def, { color: p.color || def.colors[0], doors: false });
     const group = car.group;
@@ -50,7 +69,7 @@ export class RemotePlayers {
     for (const [d, p] of near.slice(0, 8)) {
       keep.add(p.id);
       let r = this.list.get(p.id);
-      if (r && r.model !== p.model) { this.remove(r); this.list.delete(p.id); r = null; }
+      if (r && (r.model !== p.model || r.foot !== !!p.foot)) { this.remove(r); this.list.delete(p.id); r = null; }
       if (!r) { r = this.spawn(p); this.list.set(p.id, r); }
       const k = Math.min(1, (now - p.t) / 100);
       const tx = p.px + (p.x - p.px) * k + Math.sin(p.yaw) * p.speed * Math.max(0, (now - p.t - 100) / 1000) * 0.6, tz = p.pz + (p.z - p.pz) * k + Math.cos(p.yaw) * p.speed * Math.max(0, (now - p.t - 100) / 1000) * 0.6;
@@ -58,11 +77,20 @@ export class RemotePlayers {
       r.x += (tx - r.x) * f; r.z += (tz - r.z) * f; r.y += (p.y - r.y) * f;
       r.yaw += wrapAngle(p.yaw - r.yaw) * f;
       r.group.position.set(r.x, r.y, r.z); r.group.rotation.set(0, r.yaw, 0);
-      r.spin += (p.speed / 0.33) * dt;
-      for (const w of r.car.wheels) w.spin.rotation.x = r.spin;
+      r.speedNet = p.speed;
+      if (r.human) {
+        const sp = p.speed || 0, vy = p.py !== undefined ? (p.y - p.py) / 0.1 : 0;
+        const anim = Math.abs(vy) > 1.4 && Math.abs(r.y - p.y) > 0.05 ? 'jump' : sp < 0.3 ? 'idle' : sp < 2.4 ? 'walk' : sp < 5 ? 'run' : 'sprint';
+        r.t += dt; r.phase += (sp / (anim === 'walk' ? 1.45 : anim === 'run' ? 2.2 : 2.7)) * Math.PI * dt;
+        blendPose(r.pose, poseFor(anim, r.t, r.phase, anim === 'walk' ? Math.min(1, sp / 1.5) : 1), 1 - Math.exp(-dt * 12), r.pose);
+        applyPose(r.rig, r.pose);
+      } else {
+        r.spin += (p.speed / 0.33) * dt;
+        for (const w of r.car.wheels) w.spin.rotation.x = r.spin;
+      }
       r.tag.visible = d < 140;
       r.tag.material.opacity = Math.min(1, (140 - d) / 40);
-      if (this.role === 'cop' && r.car.mats.lights) r.car.mats.lights.userData.uBar?.value.set(Math.sin(now / 90) > 0 ? 1 : 0.1, Math.sin(now / 90) > 0 ? 0.1 : 1);
+      if (this.role === 'cop' && r.car?.mats.lights) r.car.mats.lights.userData.uBar?.value.set(Math.sin(now / 90) > 0 ? 1 : 0.1, Math.sin(now / 90) > 0 ? 0.1 : 1);
     }
     for (const [id, r] of this.list) if (!keep.has(id)) { this.remove(r); this.list.delete(id); }
   }

@@ -73,6 +73,7 @@ export class App {
     this.missions = new Missions(this);
     this.extras = new Extras(this);
     this.remote = new RemotePlayers(this);
+    this.game.remotes = this.remote;
     this.auction = new AuctionHouse(this);
     this.replay = new Replay(this.game);
     this.meet = new CarMeet(this);
@@ -624,6 +625,7 @@ export class App {
         this.saveT += dt;
         if (this.saveT > 25) { this.saveT = 0; this.saveWorld(); }
         this.store.tick();
+        if (!this._autoNet && this.profile && !location.search.includes('dev=')) { this._autoNet = true; this.net.autoConnect(); }
         this.net.tick(dt, g);
         g.update(dt);
         this.replay.record(dt);
