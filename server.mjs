@@ -27,7 +27,7 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
-  if (url.pathname.startsWith('/api/')) return;
+  if (url.pathname.startsWith('/api/')) { res.writeHead(404).end('no api'); return; }
   let p = decodeURIComponent(url.pathname);
   if (p === '/') p = '/index.html';
   // /w/<path>: same file with the bare 'three' specifiers made absolute, because import maps do not apply inside workers

@@ -33,7 +33,7 @@ export class BoatPhysics {
     this.stat = { distance: 0, air: 0, topSpeed: 0, bestAir: 0, bestJump: 0 };
     this.vyPrev = 0; this.ay = 0; this.slope = 0; this.camber = 0; this.zCG = 0;
     this.sail = null; this.ease = 0; this.sailT = 0; this.sailLuff = 0; this.sailPow = 0; this.tws = 0; this.awa = 0; this.aws = 0; this.motorT = 0;
-    this.planing = 0; this.wetN = 4; this.aground = 0; this.slam = 0; this.spray = 0; this.propK = 1; this.buoy = 1; this.leak = 0; this.waveY = 0; this.isBoat = true; this.isBike = false;
+    this.over = 0; this.windF = 0; this.planing = 0; this.wetN = 4; this.aground = 0; this.slam = 0; this.spray = 0; this.propK = 1; this.buoy = 1; this.leak = 0; this.waveY = 0; this.isBoat = true; this.isBike = false;
     this.retune(tune);
   }
 
@@ -57,9 +57,13 @@ export class BoatPhysics {
     if (this.sail) this.k2 = this.sail.k2;
     const m = this.mass;
     this.I = (m * (b.L * b.L + b.W * b.W)) / 12 * 1.15;
+    this.heelArm = b.H * 0.3;
     this.Ipitch = m * b.L * b.L * 0.12; this.Iroll = m * (b.W * b.W + b.H * b.H * 0.5) * 0.11;
     this.d0 = Math.max(0.12, b.draft * 0.8);
-    const wm = m / 4, k = (wm * G) / this.d0, cc = 2 * 0.36 * Math.sqrt(k * wm);
+    // heavier hulls are better damped in heave; windage areas of the topsides and the front profile
+    this.zeta = 0.34 + 0.2 * smoothstep(800, 12000, m);
+    this.sideA = b.L * b.H * 0.3; this.frontA = b.W * b.H * 0.4; this.freeboard = Math.max(0.3, b.H * 0.3);
+    const wm = m / 4, k = (wm * G) / this.d0, cc = 2 * this.zeta * Math.sqrt(k * wm);
     const zB = b.L * 0.34, zS = -b.L * 0.34, xw = b.W * (this.sail ? 0.2 : 0.36);
     this.corners = [{ lx: xw, lz: zB }, { lx: -xw, lz: zB }, { lx: xw, lz: zS }, { lx: -xw, lz: zS }].map((c) => ({ ...c, k, cc, F: 0 }));
     const H = this.hull, pts = [];
@@ -137,7 +141,7 @@ export class BoatPhysics {
       const sa = Math.sin(Math.min(Math.abs(alpha), 1.57));
       const CD = 0.07 + 0.06 * CL * CL + 0.75 * sa * sa;
       const heelCut = 1 - 0.5 * smoothstep(0.4, 0.75, Math.abs(this.roll));
-      const q = 0.5 * 1.225 * aws * aws * SL.area * heelCut;
+      const q = 0.5 * 1.225 * aws * aws * SL.area * heelCut * (1 - 0.7 * smoothstep(8, 18, aws));
       const ux = a_u / aws, lx = a_l / aws;
       sFu = q * (-CL * s * lx + CD * ux); sFl = q * (CL * s * ux + CD * lx);
       sMr = sFl * SL.hCE;
@@ -148,7 +152,7 @@ export class BoatPhysics {
     }
 
     // buoyancy springs on the live wave surface
-    let Fw = 0, Tp = 0, Tr = 0, wetN = 0;
+    let Fw = 0, Tp = 0, Tr = 0, wetN = 0, over = -1;
     const cs = this.corners, lift = this.d0 * (1 + 0.5 * plane);
     for (let i = 0; i < 4; i++) {
       const c = cs[i];
@@ -163,10 +167,22 @@ export class BoatPhysics {
         F = Math.max(0, c.k * comp + (vAt < 0 ? c.cc * -vAt * slam : c.cc * 0.55 * -vAt));
         wetN++;
       }
+      over = Math.max(over, comp - this.d0 - this.freeboard * 0.6);
       c.F = F; c.h = h; this.comp[i] = clamp(comp, 0, 2); this.wheelHit[i] = comp > 0;
       Fw += F; Tp += -F * c.lz; Tr += F * c.lx;
     }
     Fw *= this.buoy; Tp *= this.buoy; Tr *= this.buoy;
+    if (sea.waves) over = Math.max(over, sea.waves.hsAt(this.x, this.z) * 0.5 - this.freeboard * 1.8);
+    this.over = over;
+    // windage on the topsides and the front profile
+    let wFu = 0, wFl = 0;
+    const wd = env.wind;
+    if (wd) {
+      const rx = wd.x - this.vx, rz = wd.z - this.vz, ru = rx * sy + rz * cy, rl = -rx * cy + rz * sy, rs = Math.hypot(ru, rl);
+      wFu = 0.5 * 1.225 * 0.6 * this.frontA * rs * ru; wFl = 0.5 * 1.225 * 1.0 * this.sideA * rs * rl;
+      Tr += wFl * this.heelArm;
+      this.windF = Math.hypot(wFu, wFl);
+    }
     if (SL) { Tr += sMr - SL.gm * m * G * Math.sin(this.roll); this.rollV *= 1 - Math.min(0.5, dt * 1.6); }
 
     // seabed / shore contact along the keel
@@ -215,8 +231,8 @@ export class BoatPhysics {
     sea.waveAt(this.x, this.z, _n, tm);
     const slx = _n.x * G * 0.7 * wv, slz = _n.z * G * 0.7 * wv;
     if (SL) D += SL.wall * Math.max(0, au - SL.hull) ** 2;
-    u += ((Fl - D + sFu) / m + slx * sy + slz * cy) * dt;
-    vl += ((sFl) / m + slx * -cy + slz * sy) * dt;
+    u += ((Fl - D + sFu + wFu) / m + slx * sy + slz * cy) * dt;
+    vl += ((sFl + wFl) / m + slx * -cy + slz * sy) * dt;
     if (Fg > 0) {
       const s2 = Math.hypot(u, vl);
       if (s2 > 1e-4) { const dv = Math.min(s2, (this.mu * Fg) / m * dt); u -= (u / s2) * dv; vl -= (vl / s2) * dv; }
@@ -281,6 +297,12 @@ export class BoatPhysics {
     this.updateDrift(dt, speed, beta);
     this.stat.distance += speed * dt; this.stat.topSpeed = Math.max(this.stat.topSpeed, speed);
     this.visPitch = this.pitch; this.visRoll = this.roll;
+    // stability guard: a bad step is rolled back instead of propagating
+    const gd = this._good;
+    if (!Number.isFinite(this.x + this.y + this.z + this.vx + this.vz + this.vy + this.pitch + this.roll + this.w) || Math.abs(this.vy) > 40 || speed > 90) {
+      if (gd) Object.assign(this, gd); else { this.vx = this.vz = this.vy = this.w = 0; }
+      this.pitchV = this.rollV = 0;
+    } else this._good = { x: this.x, y: this.y, z: this.z, yaw: this.yaw, vx: this.vx, vz: this.vz, vy: this.vy, pitch: this.pitch, roll: this.roll, w: this.w };
   }
 
   updateDrift(dt, speed, beta) {
@@ -340,13 +362,22 @@ export class Boat extends Vehicle {
       p.step(h, input, e);
       this.collideStatic(h);
     }
+    // waves breaking over the side swamp the hull; it bails itself slowly when the sea eases
+    if (p.over > 0.02) this.swamp = Math.min(1.1, (this.swamp || 0) + dt * 0.004 * Math.min(2, p.over));
+    else this.swamp = Math.max(0, (this.swamp || 0) - dt * 0.012);
+    if (this.swamp > 0.02) {
+      p.buoy = Math.max(0.2, (1 - this.leak * 0.8) * (1 - 0.45 * this.swamp));
+      if (this.swamp > 1 && !this.sunk) { this.sunk = true; this.disabled = true; this.events.push({ type: 'sunk' }); }
+    }
     // a leaking hull loses buoyancy and finally goes down
     if (this.leak > 0.02) {
-      p.buoy = Math.max(0.2, 1 - this.leak * 0.8);
+      p.buoy = Math.max(0.2, (1 - this.leak * 0.8) * (1 - 0.45 * (this.swamp || 0)));
       this.leak = Math.min(1.2, this.leak + dt * 0.004 * (1 + p.speed * 0.05));
       if (this.leak > 1 && !this.sunk) { this.sunk = true; this.disabled = true; this.events.push({ type: 'sunk' }); }
     }
   }
+
+  dispose() { super.dispose(); this.rig?.sailMat?.dispose?.(); }
 
   checkWater() {}
 
@@ -375,7 +406,7 @@ export class Boat extends Vehicle {
   repair() {
     Object.assign(this.damage, { total: 0, front: 0, rear: 0, left: 0, right: 0, headL: false, headR: false, tailL: false, tailR: false, glass: 0 });
     this.phys.health = { engine: 1, steer: 0, brakes: 1 };
-    this.disabled = false; this.sunk = false; this.leak = 0; this.phys.buoy = 1;
+    this.disabled = false; this.sunk = false; this.leak = 0; this.swamp = 0; this.phys.buoy = 1;
   }
 
   sync(dt) {

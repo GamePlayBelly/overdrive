@@ -52,10 +52,24 @@ export function poseFor(state, t, ph, amt = 1, out = { ...REST }) {
     case 'ride': { out.hpLx = -1.0; out.hpRx = -1.0; out.hpLz = 0.35; out.hpRz = -0.35; out.knL = 1.15; out.knR = 1.15; out.hipY = -0.42; out.lean = 0.32; out.shLx = -1.3; out.shRx = -1.3; out.elL = -0.45; out.elR = -0.45; out.headX = -0.22; break; }
     case 'swim': {
       const s = Math.sin(ph), k = Math.sin(ph * 2);
-      out.lean = 0.42; out.hipY = -0.08; out.headX = -0.38; out.headY = Math.sin(ph * 0.5) * 0.12;
+      out.lean = 0.05; out.hipY = 0; out.headX = -0.95; out.headY = Math.sin(ph * 0.5) * 0.12;
       out.shLx = -1.9 + s * 1.1; out.shRx = -1.9 - s * 1.1; out.shLz = 0.22; out.shRz = -0.22;
       out.elL = -0.3 - Math.max(0, s) * 0.6; out.elR = -0.3 - Math.max(0, -s) * 0.6;
       out.hpLx = -0.22 + k * 0.4; out.hpRx = -0.22 - k * 0.4; out.knL = 0.35 + Math.max(0, Math.sin(ph * 2 + 1)) * 0.6; out.knR = 0.35 + Math.max(0, -Math.sin(ph * 2 + 1)) * 0.6;
+      break;
+    }
+    case 'dive': {
+      const s = Math.sin(ph), k = Math.sin(ph * 3);
+      out.lean = 0.05; out.hipY = 0; out.headX = -0.95; out.headY = Math.sin(ph * 0.5) * 0.1;
+      out.shLx = -2.7 + s * 1.0; out.shRx = -2.7 - s * 1.0; out.shLz = 0.1; out.shRz = -0.1;
+      out.elL = -0.15 - Math.max(0, -s) * 0.8; out.elR = -0.15 - Math.max(0, s) * 0.8;
+      out.hpLx = -0.05 + k * 0.32; out.hpRx = -0.05 - k * 0.32; out.knL = 0.18 + Math.max(0, Math.sin(ph * 3 + 1)) * 0.4; out.knR = 0.18 + Math.max(0, -Math.sin(ph * 3 + 1)) * 0.4;
+      break;
+    }
+    case 'hover': {
+      const s = Math.sin(t * 1.9);
+      out.lean = 0.04; out.hipY = 0; out.headX = -0.6; out.shLx = -2.2 + s * 0.2; out.shRx = -2.2 - s * 0.2; out.shLz = 0.5; out.shRz = -0.5; out.elL = -0.6; out.elR = -0.6;
+      out.hpLx = -0.15 + s * 0.2; out.hpRx = -0.15 - s * 0.2; out.knL = 0.4; out.knR = 0.4;
       break;
     }
     case 'tread': {

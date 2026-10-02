@@ -2,10 +2,10 @@ import { clamp } from '../core/math.js';
 
 // Quality tiers. Scale = internal render resolution; the governor moves it continuously and shifts tiers when it saturates.
 export const TIERS = [
-  { name: 'low', ao: false, samples: 0, bloom: false, shadowSize: 1024, shadowDist: 46, lod: 0.62, veg: 0.5, props: 0.7, traffic: 0.55, peds: 0.55, grass: 0.35, water: 0, smin: 0.5, smax: 0.85 },
-  { name: 'medium', ao: true, samples: 0, bloom: false, shadowSize: 1024, shadowDist: 72, lod: 0.85, veg: 0.78, props: 0.9, traffic: 0.8, peds: 0.8, grass: 0.65, water: 1, smin: 0.55, smax: 1.0 },
-  { name: 'high', ao: true, samples: 4, bloom: true, shadowSize: 2048, shadowDist: 100, lod: 1.0, veg: 1, props: 1, traffic: 1, peds: 1, grass: 1, water: 2, smin: 0.65, smax: 1.0 },
-  { name: 'ultra', ao: true, samples: 4, bloom: true, shadowSize: 2048, shadowDist: 140, lod: 1.2, veg: 1.2, props: 1.15, traffic: 1.15, peds: 1.15, grass: 1.25, water: 2, smin: 0.8, smax: 1.0 },
+  { name: 'low', ao: false, samples: 0, bloom: false, shadowSize: 1024, shadowDist: 46, lod: 0.62, veg: 0.5, props: 0.7, traffic: 0.55, peds: 0.55, grass: 0.35, water: 0, marine: 0.5, smin: 0.5, smax: 0.85 },
+  { name: 'medium', ao: true, samples: 0, bloom: false, shadowSize: 1024, shadowDist: 72, lod: 0.85, veg: 0.78, props: 0.9, traffic: 0.8, peds: 0.8, grass: 0.65, water: 1, marine: 0.8, smin: 0.55, smax: 1.0 },
+  { name: 'high', ao: true, samples: 4, bloom: true, shadowSize: 2048, shadowDist: 100, lod: 1.0, veg: 1, props: 1, traffic: 1, peds: 1, grass: 1, water: 2, marine: 1, smin: 0.65, smax: 1.0 },
+  { name: 'ultra', ao: true, samples: 4, bloom: true, shadowSize: 2048, shadowDist: 140, lod: 1.2, veg: 1.2, props: 1.15, traffic: 1.15, peds: 1.15, grass: 1.25, water: 2, marine: 1.2, smin: 0.8, smax: 1.0 },
 ];
 export const PRESET_INDEX = { low: 0, medium: 1, high: 2, ultra: 3 };
 
@@ -70,6 +70,8 @@ export class Governor {
     if (g.peds) g.peds.density = T.peds * (S.peds ?? 1);
     if (g.grass) g.grass.setQuality?.(S.grass === false ? 0 : T.grass * (S.vegetation ?? 1));
     if (g.sea) g.sea.setQuality?.(T.water);
+    if (g.seabed) { g.seabed.setQuality(T.water === 0 ? 0.35 : T.water === 1 ? 0.6 : 1); g.marine.on = true; g.marine.density = T.marine * (T.water === 0 ? 0.7 : 1); }
+    if (g.seaTraffic) g.seaTraffic.pop.density = T.marine * (S.traffic ?? 1);
     if (g.wake) g.wake.enabled = T.water >= 1 && S.wakes !== false;
     if (g.camera && S.fov) { g.rig.baseFov = S.fov; }
   }

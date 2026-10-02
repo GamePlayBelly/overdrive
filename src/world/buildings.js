@@ -428,7 +428,7 @@ export class BuildingGen {
     const main = rectUV(uHouse, setback, uHouse + hw, setback + hd);
     const H = floors * 2.9;
     this.walls(mat, main, y0, y0 + H, col, mat === 'brick' ? 3.2 : mat === 'siding' ? 2.4 : 4, mat === 'brick' ? 3.2 : mat === 'siding' ? 2.4 : 4);
-    this.world.colliders.box((main.x0 + main.x1) / 2, (main.z0 + main.z1) / 2, (main.x1 - main.x0) / 2, (main.z1 - main.z0) / 2, 0, -1, y0 + H + 3, { kind: 'building', mat: 'wood' });
+    this.world.colliders.box((main.x0 + main.x1) / 2, (main.z0 + main.z1) / 2, (main.x1 - main.x0) / 2, (main.z1 - main.z0) / 2, 0, -1, y0 + H + 3, { kind: 'building', mat: 'wood', ref: 'house' });
     const roofCol = th === 'alpine' ? (rng.chance(0.55) ? C(pick(rng, ['#e8eaee', '#dfe3e8'])) : pick(rng, ['#4a3a30', '#3d3d40', '#5a463a']))
       : th === 'desert' ? pick(rng, ['#a8553a', '#b5683f', '#8f4a32', '#c9b79a']) : pick(rng, PALETTE.roof);
     const ridgeAlongX = !frontX;

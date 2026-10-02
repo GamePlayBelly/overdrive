@@ -20,6 +20,11 @@ import { AudioSystem } from '../audio/audio.js';
 import { bindAudio } from './audioHooks.js';
 import { VehicleFx } from '../render/vehicleFx.js';
 import { WakeMap } from '../render/wake.js';
+import { SeaFx } from '../render/seaFx.js';
+import { Underwater } from '../render/underwater.js';
+import { Seabed } from '../world/seabed.js';
+import { MarineLife } from '../actors/marineLife.js';
+import { MaritimeEvents } from './maritimeEvents.js';
 import { BoatYard } from './boatYard.js';
 import { Grass } from '../world/grass.js';
 import { Police } from '../actors/police.js';
@@ -66,6 +71,8 @@ export class Game {
     this.rig = new CameraRig(this.camera, this);
     this.contact = new ContactShadows(this.scene);
     this.fx = new VehicleFx(this);
+    this.seaFx = new SeaFx(this);
+    this.underwater = new Underwater(this);
     this.traffic = new Traffic(this);
     this.peds = new Peds(this);
     this.yard = new BoatYard(this);
@@ -75,6 +82,9 @@ export class Game {
     this.crimes = new CrimeWatch(this);
     this.radio = new Radio(this);
     this.seaTraffic = new SeaTraffic(this);
+    this.seabed = new Seabed(this);
+    this.marine = new MarineLife(this);
+    this.maritime = new MaritimeEvents(this);
     this.combat = new Combat(this);
     this.airfield = new Airfield(this);
     this.airfield.init();
@@ -225,6 +235,11 @@ export class Game {
     this.world.update(dt, this.camera.position, this.sky, this.view);
     this.nightLights?.update(dt, this.camera.position, this.sky.night);
     this.fx.update(dt);
+    this.seaFx.update(dt);
+    this.underwater.update(dt);
+    this.seabed.update(dt);
+    this.marine.update(dt);
+    this.maritime.update(dt);
     this.yard.update(dt);
     {
       const pu = [];

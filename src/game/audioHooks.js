@@ -12,6 +12,9 @@ export function bindAudio(g) {
   });
   g.on('vehicle:bump', (e) => { if (e.v.isBoat) { if (e.v === g.player.vehicle || e.impact > 3) A.splash(at(e), e.impact > 4); } else if (e.v === g.player.vehicle) A.play('thud', { vol: Math.min(0.5, e.impact * 0.08), pos: at(e), rate: 1.1, refDist: 5 }); });
   g.on('player:splash', (e) => A.splash({ x: e.x, y: e.y, z: e.z }, e.speed > 4));
+  g.on('player:wade', (e) => A.play('splash', { vol: 0.1 + 0.03 * e.speed, rate: 1.3 + Math.random() * 0.4, pos: { x: e.x, y: e.y, z: e.z }, refDist: 3 }));
+  g.on('police:radio', () => A.play('squelch', { vol: 0.25, bus: 'ui' }));
+  g.on('marine:radio', () => A.play('squelch', { vol: 0.25, bus: 'ui' }));
   g.on('vehicle:door', (e) => A.door(!e.open, { x: e.v.x, y: e.v.y + 0.8, z: e.v.z }));
   g.on('vehicle:sunk', (e) => A.splash({ x: e.v.x, y: e.v.y, z: e.v.z }, true));
   g.on('player:entered', () => {});

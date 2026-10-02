@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as SY from './synth.js';
 import { STRIDE, P } from './engineDSP.js';
+import { engineProfile } from './engineProfile.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -9,10 +10,7 @@ const SURF_STEP = ['grass', 'concrete', 'concrete', 'gravel', 'sand', 'sand', 's
 function engineKind(def) {
   if (def.air) return def.air === 'jet' ? 3 : def.air === 'heli' ? 1 : 2;
   if (def.boat) return def.boat === 'jetski' || def.boat === 'rib' ? 2 : def.boat === 'sport' ? 3 : 1;
-  const st = def.body.style;
-  if (st === 'bike') return 2;
-  if (st === 'bus' || st === 'truck' || st === 'van') return 1;
-  return (def.sound?.cyl || 4) >= 8 ? 3 : 0;
+  return engineProfile(def).kind;
 }
 
 // Approximate rpm for kinematic (AI) vehicles from speed
@@ -28,6 +26,12 @@ function fakeRpm(def, speed) {
   return { rpm: Math.max(820, bestRpm), gear: best };
 }
 
+function impulse(ctx, secs) {
+  const n = Math.floor(ctx.sampleRate * secs), b = ctx.createBuffer(2, n, ctx.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); let lp = 0; for (let i = 0; i < n; i++) { const t = i / n; lp += ((Math.random() * 2 - 1) - lp) * (0.55 - 0.45 * t); d[i] = lp * Math.pow(1 - t, 3.2) * (i < 300 ? i / 300 : 1); } }
+  return b;
+}
+
 export class AudioSystem {
   constructor() {
     this.ctx = null; this.ready = false; this.enabled = true;
@@ -38,7 +42,7 @@ export class AudioSystem {
     this.tEng = 0;
     this.voices = [];
     this.prev = new Map();
-    this.stepT = 0; this.gullT = 4; this.birdT = 2; this.siren = new Map();
+    this.stepT = 0; this.gullT = 4; this.birdT = 2; this.siren = new Map(); this.uwK = 0; this.reverbK = 0; this.slapT = 1; this.bellT = 3; this.fogT = 12; this.bubT = 1;
     this.hornOn = false; this.startT = 0;
     this.loadingPromise = null;
     this.state = { skid: 0, wind: 0, road: 0, rain: 0 };
@@ -57,9 +61,16 @@ export class AudioSystem {
       const comp = ctx.createDynamicsCompressor();
       comp.threshold.value = -14; comp.knee.value = 18; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
       this.master = ctx.createGain(); this.master.gain.value = this.vol.master;
-      comp.connect(this.master); this.master.connect(ctx.destination);
+      // everything passes a lowpass that closes under water
+      this.uw = ctx.createBiquadFilter(); this.uw.type = 'lowpass'; this.uw.frequency.value = 20000; this.uw.Q.value = 0.7;
+      comp.connect(this.uw); this.uw.connect(this.master); this.master.connect(ctx.destination);
       this.bus = {};
       for (const k of ['engine', 'sfx', 'voice', 'amb', 'music', 'ui', 'tires']) { const g = ctx.createGain(); g.connect(comp); this.bus[k] = g; }
+      // shared room reverb: tunnels, garages and city canyons feed it, open roads barely do
+      this.rev = ctx.createConvolver(); this.rev.buffer = impulse(ctx, 2.6);
+      this.revIn = ctx.createGain(); this.revIn.gain.value = 0; this.revOut = ctx.createGain(); this.revOut.gain.value = 0.9;
+      this.revIn.connect(this.rev); this.rev.connect(this.revOut); this.revOut.connect(comp);
+      for (const k of ['engine', 'sfx', 'tires']) this.bus[k].connect(this.revIn);
       this.setVolumes(this.vol);
       this.listener = ctx.listener;
       this.buildLoops();
@@ -91,6 +102,14 @@ export class AudioSystem {
     set(this.bus.amb, this.vol.ambience); set(this.bus.music, this.vol.music * this.vol.radio); set(this.bus.ui, this.vol.effects);
   }
 
+  // k 0..1: how far under the surface the listener is
+  setUnderwater(k) {
+    this.uwK = k;
+    if (!this.ctx || !this.uw) return;
+    const f = Math.exp(Math.log(20000) + (Math.log(380) - Math.log(20000)) * k);
+    this.uw.frequency.setTargetAtTime(f, this.ctx.currentTime, 0.06);
+  }
+
   toBuffer(arr, sr = this.ctx.sampleRate) { const b = this.ctx.createBuffer(1, arr.length, sr); b.copyToChannel(arr, 0); return b; }
 
   renderSamples() {
@@ -120,6 +139,7 @@ export class AudioSystem {
     const mkLayer = (bus) => { const g = ctx.createGain(); g.gain.value = 0; g.connect(bus); return g; };
     this.L.wind = { out: mkLayer(this.bus.amb) }; this.L.road = { out: mkLayer(this.bus.tires) }; this.L.squeal = { out: mkLayer(this.bus.tires) }; this.L.grit = { out: mkLayer(this.bus.tires) };
     this.L.city = { out: mkLayer(this.bus.amb) }; this.L.sea = { out: mkLayer(this.bus.amb) }; this.L.forest = { out: mkLayer(this.bus.amb) }; this.L.rain = { out: mkLayer(this.bus.amb) }; this.L.night = { out: mkLayer(this.bus.amb) };
+    this.L.gale = { out: mkLayer(this.bus.amb) }; this.L.swell = { out: mkLayer(this.bus.amb) }; this.L.surf = { out: mkLayer(this.bus.amb) }; this.L.wake = { out: mkLayer(this.bus.tires) }; this.L.under = { out: mkLayer(this.bus.amb) }; this.L.spray = { out: mkLayer(this.bus.tires) };
     this.L.hornG = mkLayer(this.bus.sfx);
   }
 
@@ -139,6 +159,12 @@ export class AudioSystem {
     L.forest.hp = bq('highpass', 300); L.forest.lp = bq('lowpass', 2500); L.forest.src = chain(Lp.pink, L.forest.out, [L.forest.hp, L.forest.lp]);
     L.rain.src = chain(Lp.rain, L.rain.out);
     L.night.src = chain(this.buf.cricket, L.night.out);
+    L.gale.hp = bq('highpass', 120); L.gale.lp = bq('lowpass', 900); L.gale.src = chain(Lp.wind, L.gale.out, [L.gale.hp, L.gale.lp]);
+    L.swell.lp = bq('lowpass', 150); L.swell.src = chain(Lp.pink, L.swell.out, [L.swell.lp]);
+    L.surf.hp = bq('highpass', 500); L.surf.lp = bq('lowpass', 5200); L.surf.src = chain(Lp.waves, L.surf.out, [L.surf.hp, L.surf.lp]);
+    L.wake.hp = bq('highpass', 1800); L.wake.lp = bq('lowpass', 7000); L.wake.src = chain(Lp.white, L.wake.out, [L.wake.hp, L.wake.lp]);
+    L.spray.hp = bq('highpass', 2200); L.spray.lp = bq('lowpass', 9000); L.spray.src = chain(Lp.white, L.spray.out, [L.spray.hp, L.spray.lp]);
+    L.under.lp = bq('lowpass', 180); L.under.src = chain(Lp.pink, L.under.out, [L.under.lp]);
   }
 
   // ---- one shots ----
@@ -259,15 +285,20 @@ export class AudioSystem {
         const b = n * STRIDE;
         A[b + P.active] = 1; A[b + P.rpm] = o.rpm; A[b + P.load] = o.load; A[b + P.gain] = o.gain; A[b + P.pan] = o.pan; A[b + P.cyl] = def.sound?.cyl || 4; A[b + P.rough] = def.sound?.rough ?? 0.3;
         A[b + P.pitch] = def.sound?.pitch || 1; A[b + P.kind] = engineKind(def); A[b + P.lp] = o.lp; A[b + P.turbo] = o.turbo || 0; A[b + P.cut] = o.cut || 0; A[b + P.whine] = o.whine || 0; A[b + P.whineHz] = o.whineHz || 0;
+        const pr = def.air || def.boat ? null : engineProfile(def);
+        A[b + P.exh] = (pr ? pr.exhaust : 1) * (o.exh ?? 1); A[b + P.intake] = pr ? pr.intake : 1; A[b + P.brk] = o.brk || 0; A[b + P.trans] = pr ? pr.trans : 1; A[b + P.room] = o.room || 0; A[b + P.vol] = (pr ? pr.engine : 1); A[b + P.shift] = o.shift || 0; A[b + P.shiftGain] = pr ? pr.shift : 1;
         n++;
       };
       if (pv) {
         const ph = pv.phys;
         const start = this.startT > 0 ? clamp(1 - this.startT / 1.1, 0, 1) : 1;
-        const run = ph.engineOn ? start : 0;
+        if (this.prevOn && !ph.engineOn) this.offT = 0.8; this.prevOn = ph.engineOn; this.offT = Math.max(0, (this.offT || 0) - 1 / 40);
+        const offK = ph.engineOn ? 1 : this.offT / 0.8, run = ph.engineOn ? start : offK;
         const nearLoad = clamp(ph.thrIn * (ph.shiftT > 0 ? 0.25 : 1), 0, 1);
-        const gain = (interior ? 0.62 : semi ? 0.75 : 0.9) * run * (ph.engineOn ? 1 : 0);
-        put(pv.def, { rpm: Math.max(ph.rpm, ph.engineOn ? pv.def.perf.redline * 0.1 : 0), load: nearLoad, gain, pan: 0, lp: interior ? 0.34 : semi ? 0.55 : 1, turbo: (ph.tune?.turbo ? clamp(nearLoad * ph.rpm / ph.redline, 0, 1) * (ph.tune.turbo / 3) : 0) + ph.boost * 0.7, cut: ph.limiter, whine: 0.25 * nearLoad * (ph.gear <= 3 ? 1 : 0.5), whineHz: ph.speed * 24 + 120 });
+        const pvp = pv.isBoat || pv.isAir ? null : engineProfile(pv.def), exposed = !!pvp?.bike;
+        const gain = (interior && !exposed ? 0.62 : semi && !exposed ? 0.75 : 0.9) * run;
+        const brakeOn = ph.thrIn < 0.05 && ph.rpm > 2000 && ph.gear > 0;
+        put(pv.def, { rpm: ph.engineOn ? Math.max(ph.rpm, pv.def.perf.redline * 0.1) : ph.rpm * offK + 120, load: ph.engineOn ? nearLoad : 0, gain, pan: 0, lp: exposed ? 1 : interior ? 0.34 : semi ? 0.55 : 1, turbo: (ph.tune?.turbo ? clamp(nearLoad * ph.rpm / ph.redline, 0, 1) * (ph.tune.turbo / 3) : 0) + (pvp?.turbo ? pvp.turbo * 0.8 : 0) + ph.boost * 0.7, cut: ph.limiter, whine: 0.25 * nearLoad * (ph.gear <= 3 ? 1 : 0.5), whineHz: ph.speed * 24 + 120, brk: brakeOn ? 1 : 0, room: interior && !exposed ? 0.5 + 0.3 * this.reverbK : 0, shift: ph.shiftT > 0 ? 1 : 0, exh: interior && !exposed ? 0.5 : 1 });
       }
       // other vehicles nearby
       const cand = [];
@@ -289,7 +320,8 @@ export class AudioSystem {
         const g = clamp(9 / (d + 6), 0, 0.55) * (c.def.body.style === 'bike' ? 0.8 : 1);
         if (g < 0.02) continue;
         const pan = clamp((dx * right.x + dz * right.z), -1, 1);
-        put(c.def, { rpm: fr.rpm * dop, load, gain: g, pan, lp: clamp(1 - d / 160, 0.12, 0.85) * (interior ? 0.55 : 1), whine: 0 });
+        const behind = clamp(-(dx * _f.x + dz * _f.z), 0, 1), gearCh = prev.gear !== undefined && fr.gear !== prev.gear; prev.gear = fr.gear; if (gearCh) prev.sh = 0.18; prev.sh = Math.max(0, (prev.sh || 0) - dt);
+        put(c.def, { rpm: fr.rpm * dop, load, gain: g, pan, lp: clamp(1 - d / 160, 0.12, 0.85) * (1 - 0.35 * behind) * (interior ? 0.55 : 1), whine: 0, brk: acc < -1.5 && c.speed > 4 ? 1 : 0, shift: prev.sh > 0 ? 1 : 0, exh: d < 40 ? 1 : 0.7, turbo: c.def.sound?.turbo ? 0.3 * load : 0 });
       }
       if (this.prev.size > 200) this.prev.clear();
       this.bankNode.port.postMessage({ p: A });
@@ -308,24 +340,27 @@ export class AudioSystem {
     const set = (g, v, tc = 0.06) => g.gain.setTargetAtTime(v, t, tc);
     if (pv) {
       const ph = pv.phys, sp = ph.speed;
-      const interiorK = interior ? 0.55 : 1;
+      const prof = pv.isBoat || pv.isAir ? null : engineProfile(pv.def), tireV = prof?.tire ?? 1, windV = prof?.wind ?? 1, wet = sky.wetness || 0;
+      const interiorK = interior && !prof?.bike ? 0.55 : 1;
       const spW = ph.sail ? ph.aws * 3.4 : sp;
       const wind = clamp((spW - 8) / 55, 0, 1) ** 1.6;
-      set(L2.wind.out, wind * 0.65 * interiorK * (this.zone.rain > 0.5 ? 1.1 : 1)); L2.wind.lp.frequency.setTargetAtTime(500 + spW * 26, t, 0.1);
+      set(L2.wind.out, wind * 0.65 * windV * interiorK * (this.zone.rain > 0.5 ? 1.1 : 1)); L2.wind.lp.frequency.setTargetAtTime(500 + spW * 26, t, 0.1);
       const boat = !!pv.isBoat;
       const asph = ph.surfF === 1 || ph.surfF === 2 || ph.surfF === 8;
       const roadK = clamp(sp / 35, 0, 1);
       if (boat) { set(L2.road.out, clamp(sp / 22, 0, 1) * (0.25 + 0.3 * ph.planing) * interiorK * (ph.wetN > 0 ? 1 : 0.15)); L2.road.lp.frequency.setTargetAtTime(700 + sp * 70 + ph.planing * 500, t, 0.1); }
-      else set(L2.road.out, roadK * (asph ? 0.3 : 0.5) * interiorK); if (!boat) L2.road.lp.frequency.setTargetAtTime(asph ? 260 + sp * 14 : 420 + sp * 30, t, 0.1);
+      else set(L2.road.out, roadK * (asph ? 0.3 + 0.3 * wet : 0.5) * tireV * interiorK); if (!boat) L2.road.lp.frequency.setTargetAtTime(asph ? 260 + sp * 14 + wet * 650 : ph.surfR === 3 || ph.surfR === 4 ? 700 + sp * 40 : 420 + sp * 30, t, 0.1);
+      set(L2.spray.out, boat || !asph ? 0 : wet * clamp(sp / 30, 0, 1) * 0.3 * tireV * interiorK, 0.12);
+      set(L2.wake.out, boat ? clamp(sp / 24, 0, 1) * (0.1 + 0.5 * ph.planing) * interiorK * (ph.wetN > 0 ? 1 : 0) : 0, 0.15); if (boat) L2.wake.hp.frequency.setTargetAtTime(1200 + sp * 60, t, 0.2);
       const sq = boat ? 0 : clamp(Math.max(ph.skidF * 0.6, ph.skidR), 0, 1) * (ph.onGround ? 1 : 0);
       const sqOn = asph ? sq : 0;
-      set(L2.squeal.out, sqOn * sqOn * 0.5 * (interior ? 0.6 : 1), 0.04);
+      set(L2.squeal.out, sqOn * sqOn * 0.5 * tireV * (1 - 0.3 * wet) * (interior && !prof?.bike ? 0.6 : 1), 0.04);
       const fs = 900 + clamp(sp / 40, 0, 1) * 800 + ph.slipAngle * 900 + Math.sin(t * 37) * 40 * sq;
       L2.squeal.bp.frequency.setTargetAtTime(fs, t, 0.03); L2.squeal.bp2.frequency.setTargetAtTime(fs * 1.9 + Math.sin(t * 21) * 60, t, 0.03);
       const gr = boat ? 0 : !asph ? clamp(sp / 25, 0, 1) * (ph.onGround ? 1 : 0) * (0.35 + sq * 0.6) : sq * 0.15;
-      set(L2.grit.out, gr * 0.6 * interiorK, 0.08); L2.grit.lp.frequency.setTargetAtTime(1200 + sp * 60, t, 0.1);
+      set(L2.grit.out, gr * 0.6 * tireV * interiorK, 0.08); L2.grit.lp.frequency.setTargetAtTime(1200 + sp * 60, t, 0.1);
       S.skid = sq;
-    } else { for (const k of ['wind', 'road', 'squeal', 'grit']) set(L2[k].out, 0, 0.1); }
+    } else { for (const k of ['wind', 'road', 'squeal', 'grit', 'wake', 'spray']) set(L2[k].out, 0, 0.1); }
     // tick of indicators
     if (pv) {
       const v = pv, l = v.lights, on = (l.indL || l.indR || l.hazard);
@@ -348,14 +383,35 @@ export class AudioSystem {
     Z.city += (tCity - Z.city) * k; Z.sea += (tSea - Z.sea) * k; Z.forest += (tForest - Z.forest) * k; Z.night += (tNight - Z.night) * k; Z.rain += (rainI - Z.rain) * k;
     const inside = interior ? 0.5 : 1;
     set(L2.city.out, (0.06 + Z.city * 0.22) * (1 - Z.night * 0.4) * inside, 0.4); L2.city.lp.frequency.setTargetAtTime(280 + Z.city * 500, t, 0.4);
-    set(L2.sea.out, Z.sea * 0.55 * inside, 0.5);
+    const wv = game.world.sea?.waves, U = sky.wind?.speed || 0, hs = wv ? wv.hs : 0, rough = clamp(hs / 4, 0, 1), uwK = this.uwK;
+    set(L2.sea.out, Z.sea * (0.3 + 0.7 * rough) * 0.55 * inside * (1 - 0.7 * uwK), 0.5);
+    set(L2.swell.out, Z.sea * Math.pow(rough, 1.2) * 0.5 * inside * (1 - 0.5 * uwK), 0.6);
+    set(L2.surf.out, clamp(1 - seaD / 90, 0, 1) * (0.15 + 0.85 * rough) * 0.45 * inside * (1 - uwK), 0.5);
+    set(L2.gale.out, Math.pow(clamp((U - 4) / 16, 0, 1), 1.3) * 0.5 * inside * (1 - uwK), 0.5); L2.gale.lp.frequency.setTargetAtTime(500 + U * 60 + Math.sin(t * 0.7) * 120, t, 0.3);
+    set(L2.under.out, uwK * 0.3, 0.2);
     set(L2.forest.out, Z.forest * 0.13 * (1 - Z.rain * 0.4) * inside, 0.5);
-    set(L2.rain.out, Z.rain * 0.5 * (interior ? 0.7 : 1), 0.4);
+    set(L2.rain.out, Z.rain * 0.5 * (interior ? 0.7 : 1) * (1 - uwK), 0.4);
     set(L2.night.out, Z.night * Z.forest * 0.3, 0.6);
     // random natural one-shots
     this.gullT -= dt; this.birdT -= dt;
     if (this.gullT <= 0) { this.gullT = 3 + Math.random() * 8; if (Z.sea > 0.35) { const a = Math.random() * Math.PI * 2, r = 25 + Math.random() * 70; this.play('gull', { vol: 0.35 * Z.sea, pos: { x: px + Math.cos(a) * r, y: 20 + Math.random() * 20, z: pz + Math.sin(a) * r }, refDist: 20 }); } }
     if (this.birdT <= 0) { this.birdT = 1.2 + Math.random() * 4; if (Z.forest > 0.3 && Z.night < 0.5 && Z.rain < 0.6) { const a = Math.random() * Math.PI * 2, r = 10 + Math.random() * 45; this.play('bird', { vol: 0.35 * Z.forest, pos: { x: px + Math.cos(a) * r, y: 5 + Math.random() * 8, z: pz + Math.sin(a) * r }, refDist: 8 }); } }
+    // acoustic environment: roofed spaces ring, canyons a little, open ground hardly at all; it eases in and out
+    {
+      const roof = w.decks ? w.decks.at(px, pz, cam.position.y + 20) : null, covered = roof !== null && roof > cam.position.y + 2.5;
+      const tgt = clamp((covered ? 0.75 : built ? (d === 'cbd' ? 0.16 : 0.09) : 0.03) + rainI * 0.04 + (interior ? 0.1 : 0), 0, 1) * (1 - uwK);
+      this.reverbK += (tgt - this.reverbK) * (1 - Math.exp(-dt * (covered ? 2.5 : 1.0)));
+      this.revIn.gain.setTargetAtTime(this.reverbK * 0.8, t, 0.15);
+      this.covered = covered;
+    }
+    // sea state one-shots: thunder, hull slaps, buoy bells, fog horns, bubbles under water
+    for (const e of sky.events) if (e.type === 'thunder') this.play('thunder', { vol: 0.8, delay: e.delay, bus: 'sfx' });
+    sky.events.length = 0;
+    this.slapT -= dt; this.bellT -= dt; this.fogT -= dt; this.bubT -= dt;
+    if (pv && pv.isBoat && this.slapT <= 0 && pv.phys.speed > 4 && hs > 0.7 && pv.phys.wetN > 0) { this.slapT = 0.5 + Math.random() * 1.2 / (0.5 + hs); this.play('splash', { vol: 0.1 + 0.06 * hs, rate: 0.9 + Math.random() * 0.4, pos: { x: pv.x + Math.sin(pv.yaw) * pv.def.body.L * 0.3, y: pv.y, z: pv.z + Math.cos(pv.yaw) * pv.def.body.L * 0.3 }, refDist: 4 }); }
+    if (this.bellT <= 0) { this.bellT = 3 + Math.random() * 5; if (Z.sea > 0.4 && hs > 1.4 && !uwK) { const a = Math.random() * 6.283, r = 120 + Math.random() * 220; this.play('bell', { vol: 0.2 * Math.min(1, hs / 3), rate: 0.95 + Math.random() * 0.1, pos: { x: px + Math.cos(a) * r, y: 2, z: pz + Math.sin(a) * r }, refDist: 40 }); } }
+    if (this.fogT <= 0) { this.fogT = 20 + Math.random() * 12; if (Z.sea > 0.3 && sky.w.fog > 0.004 && !uwK) { const a = Math.random() * 6.283, r = 300 + Math.random() * 500; this.play('foghorn', { vol: 0.5, pos: { x: px + Math.cos(a) * r, y: 6, z: pz + Math.sin(a) * r }, refDist: 90 }); } }
+    if (this.bubT <= 0) { this.bubT = 0.7 + Math.random() * 1.8; if (uwK > 0.5) this.play('bubble', { vol: 0.3, rate: 0.8 + Math.random() * 0.8, bus: 'sfx' }); }
     // on-foot steps
     if (!pv && P0.speed > 0.4 && P0.onGround !== false) {
       this.stepT -= dt * (P0.speed / 2.2);

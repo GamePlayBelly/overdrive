@@ -92,6 +92,7 @@ vec3 fxaa(vec2 uv){
 
 void main(){
   vec2 uv = vUv;
+  if (uWater > 0.01) uv += uWater * 0.0035 * vec2(sin(uv.y * 38.0 + uTime * 1.6), cos(uv.x * 31.0 + uTime * 1.3));
 #ifdef USE_RAIN
   if (uRain > 0.01) { float t = uTime * 0.6; vec2 g = uv * vec2(9.0, 5.0); float n = hash(floor(g) + floor(t)); vec2 f = fract(g) - 0.5; float d = length(f + vec2(0.0, fract(t + n) - 0.5) * 0.4); float drop = smoothstep(0.32, 0.0, d) * step(0.93, n) * uRain; uv += normalize(f + 1e-4) * drop * 0.01; }
 #endif
@@ -150,7 +151,8 @@ void main(){
   col *= uTint;
   { float ll = luma(col); col = mix(col * vec3(0.95, 0.99, 1.07), col * vec3(1.05, 1.0, 0.93), smoothstep(0.18, 0.75, ll)); col = col + 0.004 * (1.0 - ll); }
   col *= 1.0 - uVig * smoothstep(0.18, 0.95, r2 * 2.6);
-  col = mix(col, col * vec3(0.55, 0.85, 1.0) + vec3(0.0, 0.05, 0.08), uWater);
+  col = mix(col, col * vec3(0.62, 0.9, 1.0) + vec3(0.0, 0.03, 0.05), uWater);
+  col *= 1.0 - uWater * 0.3 * smoothstep(0.1, 0.9, r2 * 2.6);
   col += vec3(0.6, 0.02, 0.02) * uDamage * smoothstep(0.1, 0.6, r2 * 2.0);
   col += vec3(0.9, 0.95, 1.0) * uFlash;
   col = toSRGB(clamp(col, 0.0, 1.0));

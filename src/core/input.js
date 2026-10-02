@@ -36,13 +36,14 @@ export const DEFAULT_BINDS = {
   gearbox: ['KeyU'],
   doors: ['KeyZ'],
   photoMode: ['KeyN'],
+  dive: ['ControlLeft', 'ControlRight'],
 };
 
 export const ACTION_LABELS = {
   throttle: 'Accelerate / Walk forward', brake: 'Brake / Reverse', left: 'Steer left', right: 'Steer right', handbrake: 'Handbrake', enter: 'Enter / Exit vehicle',
   camera: 'Change camera', lookBack: 'Look back', horn: 'Horn', lights: 'Headlights', siren: 'Siren (police vehicles)', map: 'World map', phone: 'Phone', pause: 'Pause',
   reset: 'Reset vehicle', photo: 'Photo mode', interact: 'Interact', sprint: 'Sprint', jump: 'Jump', indicatorL: 'Left indicator', indicatorR: 'Right indicator', emote: 'Emote wheel', replay: 'Replay', surrender: 'Pull over / Surrender',
-  nitro: 'Nitro', engine: 'Engine on / off', hazard: 'Hazard lights', highbeam: 'High beams', radio: 'Radio on / off', radioNext: 'Next station', cruise: 'Cruise control', gearUp: 'Shift up (manual)', gearDown: 'Shift down (manual)', gearbox: 'Automatic / manual', doors: 'Open doors / trunk', photoMode: 'Photo mode',
+  nitro: 'Nitro', engine: 'Engine on / off', hazard: 'Hazard lights', highbeam: 'High beams', radio: 'Radio on / off', radioNext: 'Next station', cruise: 'Cruise control', gearUp: 'Shift up (manual)', gearDown: 'Shift down (manual)', gearbox: 'Automatic / manual', doors: 'Open doors / trunk', photoMode: 'Photo mode', dive: 'Dive / swim down',
 };
 
 export class Input {
@@ -123,7 +124,7 @@ export class Input {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     return pads[this.pad] || null;
   }
-  static PAD = { handbrake: 0, enter: 3, camera: 2, horn: 10, lookBack: 1, map: 8, pause: 9, phone: 12, reset: 13, sprint: 0, jump: 1, interact: 2, surrender: 14 };
+  static PAD = { handbrake: 0, enter: 3, camera: 2, horn: 10, lookBack: 1, map: 8, pause: 9, phone: 12, reset: 13, sprint: 0, jump: 1, interact: 2, surrender: 14, dive: 4 };
   padHeld(action) { const gp = this.gp(); const b = Input.PAD[action]; return !!(gp && b != null && gp.buttons[b]?.pressed); }
   padHit(action) { const gp = this.gp(); const b = Input.PAD[action]; return !!(gp && b != null && gp.buttons[b]?.pressed && !this.padPrev[b]); }
 

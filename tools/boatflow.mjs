@@ -41,12 +41,12 @@ const out = await page.evaluate(async ({ STEP, BOAT }) => {
       step(1); t += 1 / 60;
       if (t >= times[ti]) grab(`${t.toFixed(2)} ${P.state}`);
     }
-    log.push(`boarded: state ${P.state} vehicle ${!!P.vehicle}`);
+    log.push(`boarded: state ${P.state} vehicle ${!!P.vehicle} id=${P.vehicle?.def?.id} same=${P.vehicle === boat} at ${P.vehicle?.x?.toFixed(0)},${P.vehicle?.z?.toFixed(0)} boat ${boat.x.toFixed(0)},${boat.z.toFixed(0)} n=${g.vehicles.length} near=${g.vehicles.filter((q) => q.isBoat && Math.hypot(q.x - boat.x, q.z - boat.z) < 12).map((q) => q.def.id + ':' + q.uid).join('|')}`);
     window.__board = S.cv.toDataURL('image/png');
   }
   // drive out
   key('KeyW');
-  for (let i = 0; i < 60 * 5; i++) { step(1); if (i % 60 === 59) log.push(`drive t${(i + 1) / 60} v=${boat.phys.speed.toFixed(1)} pos ${boat.x.toFixed(0)},${boat.z.toFixed(0)} hdg ${boat.yaw.toFixed(2)}`); }
+  for (let i = 0; i < 60 * 5; i++) { step(1); if (i % 60 === 59) log.push(`drive moor=${!!boat.moor} eng=${boat.phys.engineOn} thr=${boat.input.throttle} gnd=${boat.phys.aground} wet=${boat.phys.wetN} drv=${!!boat.driver} lvl=${g.police.level} t${(i + 1) / 60} v=${boat.phys.speed.toFixed(1)} pos ${boat.x.toFixed(0)},${boat.z.toFixed(0)} hdg ${boat.yaw.toFixed(2)}`); }
   key('KeyD');
   for (let i = 0; i < 60 * 3; i++) step(1);
   key('KeyD', false);

@@ -3,6 +3,7 @@ import { MAP, BLIP } from '../ui/mapRender.js';
 import { clamp, lerp, smoothstep, wrapAngle } from '../core/math.js';
 import { xpToNext, rankFor } from '../data/progression.js';
 import { WEATHERS } from '../world/sky.js';
+import { beaufort } from '../data/sea.js';
 
 const STAR = '<path d="M12 2l3 6.6 7.2.8-5.4 4.9 1.5 7.1L12 17.8 5.7 21.4l1.5-7.1L1.8 9.4 9 8.6 12 2z"/>';
 
@@ -49,7 +50,10 @@ export class Hud {
     this.stars = h('div', { class: 'stars' }, this.starEls);
     this.wantedInfo = h('div', { class: 'wanted-info' });
     this.timeEl = h('div', { class: 'hud-time' }, '09:30', h('small', null, 'Sunny'));
-    this.tr = h('div', { class: 'hud-tr' }, this.timeEl, this.stars, this.wantedInfo);
+    this.seaEl = h('div', { class: 'hud-sea hide' });
+    this.tr = h('div', { class: 'hud-tr' }, this.timeEl, this.seaEl, this.stars, this.wantedInfo);
+    this.o2Fill = bar(1, 'blue', 'o2-bar'); this.o2Depth = h('div', { class: 'o2-depth' }, '0.0 m');
+    this.o2Box = h('div', { class: 'o2-box hide' }, h('div', { class: 'o2-label' }, 'Breath'), this.o2Fill, this.o2Depth);
     // compass
     this.compassInner = h('div', { class: 'compass-inner' });
     this.compassW = 4;
@@ -84,7 +88,7 @@ export class Hud {
     this.hint = h('div', { class: 'ctl-hint' });
     this.fps = h('div', { class: 'fps hide' });
     this.bubbles = h('div', { style: 'position:absolute;inset:0' });
-    this.el.append(this.tl, this.tr, this.compass, this.objective, this.bl, this.br, this.prompt, this.subtitle, this.hint, this.fps, this.bubbles);
+    this.el.append(this.tl, this.tr, this.compass, this.objective, this.bl, this.br, this.prompt, this.subtitle, this.hint, this.fps, this.bubbles, this.o2Box);
     document.getElementById('ui').appendChild(this.el);
     this.vig = h('div', { class: 'vignette-fx' }); this.flash = h('div', { class: 'flash-fx' });
     document.body.append(this.vig, this.flash);
@@ -133,6 +137,7 @@ export class Hud {
       this.starEls.forEach((s, i) => { s.classList.toggle('on', i < w.level); s.classList.toggle('flash', w.level > 0 && w.evading && i < w.level); s.style.display = i < 5 || w.level > 5 ? '' : 'none'; });
       this.wantedInfo.textContent = w.level ? (w.evading ? 'Evading' : w.searching ? 'Searching' : 'Wanted') : '';
       this.updateObjective();
+      this.updateSea(g, P);
       if (prof.settings.graphics.fpsCounter) { const st = g.gov.status(); this.fps.textContent = `${st.fps} fps  ${st.ms}ms  ${st.tier} x${st.scale}  tris ${(g.renderer.info.render.triangles / 1e3) | 0}k  calls ${g.renderer.info.render.calls}`; this.fps.classList.remove('hide'); } else this.fps.classList.add('hide');
     }
     // ---- compass ----
@@ -159,6 +164,16 @@ export class Hud {
     this.hint.style.display = prof.settings.general.hints ? '' : 'none';
     // prompts
     this.updatePrompt(g, P, v);
+  }
+
+  // sea state while afloat or by the shore; breath and depth while swimming
+  updateSea(g, P) {
+    const sea = g.world.sea, W = sea?.waves, on = W && ((P.vehicle && P.vehicle.isBoat) || P.state === 'swim' || sea.distanceToSea(P.x, P.z) < 120);
+    this.seaEl.classList.toggle('hide', !on);
+    if (on) { const t = `Bft ${beaufort(W.U)} · ${W.hs.toFixed(1)} m`; if (this.seaEl.textContent !== t) this.seaEl.textContent = t; }
+    const sw = P.state === 'swim' && (P.o2 < 0.995 || P.dive > 0.1);
+    this.o2Box.classList.toggle('hide', !sw);
+    if (sw) { this.o2Fill.firstChild.style.width = Math.round(P.o2 * 100) + '%'; this.o2Fill.classList.toggle('low', P.o2 < 0.25); this.o2Depth.textContent = P.dive.toFixed(1) + ' m'; }
   }
 
   updateObjective() {
@@ -257,6 +272,7 @@ export class Hud {
     for (const b of this.app.blips?.() || []) dot(b.x, b.z, b.color || BLIP.mission, b.r || 4, true);
     if (this.wpt) dot(this.wpt.x, this.wpt.z, BLIP.waypoint, 5, true);
     for (const car of g.traffic.cars) if (car.role === 'police' || car.def.livery === 'police') dot(car.x, car.z, '#3b82f6', 3.2);
+    for (const u of g.police.cg.units) dot(u.v.x, u.v.z, '#3b82f6', 3.8);
     x.restore();
     // edge fade + player arrow
     x.save(); x.translate(S / 2, S / 2);

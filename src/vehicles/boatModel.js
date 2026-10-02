@@ -511,6 +511,16 @@ export function boatGeometry(def) {
   const ctx = { paint: new GeoBuilder(), glass: new GeoBuilder(), trim: new GeoBuilder(), chrome: new GeoBuilder(), lights: new GeoBuilder() };
   const info = (BUILD[def.boat] || BUILD.sport)(ctx, def);
   const b = def.body;
+  // navigation lights (red to port, green to starboard, white at the stern) on every motor hull; a light bar on patrol craft that lack one
+  if (!def.perf.sail) {
+    const y = b.H * 0.52, z = b.L * 0.22, x = b.W * 0.4;
+    lamp(ctx.lights, 0, x, y, z, 0.07, 0.07, 0.07, C('#ff2a2a')); lamp(ctx.lights, 0, -x, y, z, 0.07, 0.07, 0.07, C('#2aff5a'));
+  }
+  if (def.lightbar && def.boat !== 'rib') {
+    const top = b.H * (def.boat === 'yacht' ? 0.98 : 0.95);
+    bx(ctx.trim, 0, top, -b.L * 0.05, 0.9, 0.06, 0.2, K.dark);
+    lamp(ctx.lights, 6, 0.26, top + 0.07, -b.L * 0.05, 0.3, 0.08, 0.14, C('#5a1010')); lamp(ctx.lights, 7, -0.26, top + 0.07, -b.L * 0.05, 0.3, 0.08, 0.14, C('#10105a'));
+  }
   const out = {};
   for (const k of ['paint', 'glass', 'trim', 'chrome', 'lights']) out[k] = ctx[k].count ? ctx[k].build(k !== 'glass') : null;
   out.plates = null;

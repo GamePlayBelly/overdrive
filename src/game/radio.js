@@ -182,11 +182,13 @@ export class Radio {
   bulletin() {
     const g = this.g, sky = g.sky, P = g.police;
     const hr = Math.floor(sky.time), mn = Math.floor((sky.time % 1) * 60);
-    const w = { sunny: 'clear skies', cloudy: 'cloudy skies', overcast: 'an overcast sky', lightRain: 'light rain', heavyRain: 'heavy rain', fog: 'dense fog', storm: 'thunderstorms' }[sky.weather] || 'fair weather';
+    const w = { sunny: 'clear skies', cloudy: 'cloudy skies', overcast: 'an overcast sky', lightRain: 'light rain', heavyRain: 'heavy rain', fog: 'dense fog', storm: 'thunderstorms', calm: 'calm and clear skies', breezy: 'a fresh breeze', windy: 'strong winds', roughSea: 'rough seas', thunderstorm: 'thunderstorms', gale: 'gale force winds' }[sky.weather] || 'fair weather';
+    const sw = g.world.sea?.waves, sea = sw ? `Marine forecast: waves of ${sw.hs.toFixed(1)} metres, wind ${Math.round(sw.U)} metres per second.` : '';
     const lines = [
       `This is Riverton Talk. It is ${hr} ${mn < 10 ? 'oh ' : ''}${mn}. Expect ${w} across the county.`,
       P && P.level > 0 ? 'Police report an active pursuit in the county. Drivers are advised to stay clear of emergency vehicles.' : 'Traffic is moving normally downtown. Check Central Avenue for lane closures near the park.',
       'Marlow Bay reports a busy afternoon at the marina. Boaters are reminded to keep a slow wake inside the harbor.',
+      sea || 'Calm seas reported along the coast.',
       'The Riverton Motor Club announces this weekend\'s car meet. Doors open at dusk.',
       'Road crews are resurfacing Ridge Road overnight. Expect delays in both directions.',
       'Stone Recovery has issued a statement denying any wrongdoing. No further comment was made.',

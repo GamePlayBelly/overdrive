@@ -1,26 +1,41 @@
-import { launch, shot, sleep } from './harness.mjs';
-const A = await launch({ width: 960, height: 540 });
-await A.page.waitForFunction(() => window.__game && window.__game.player?.vehicle && window.__app?.mode === 'play', null, { timeout: 240000 });
-const pageB = await A.browser.newPage({ viewport: { width: 960, height: 540 } });
-pageB.on('pageerror', (e) => console.error('B pageerror:', e.message));
-await pageB.goto(`http://127.0.0.1:${A.port}/index.html?dev=1`);
-await pageB.waitForFunction(() => window.__game && window.__game.player?.vehicle && window.__app?.mode === 'play', null, { timeout: 240000 });
-const setup = async (page, name, x, z, model) => page.evaluate(async ({ name, x, z, model }) => {
-  const app = window.__app, g = window.__game;
-  app.store.profile.name = name;
-  g.traffic.update = () => {}; g.peds.update = () => {};
-  const v = g.player.vehicle; v.place(x, g.world.groundY(x, z, 80), z, 0.4);
-  try { await app.net.connect(); } catch (e) { return 'connect failed ' + e.message; }
-  return 'online ' + app.net.connected;
-}, { name, x, z, model });
-console.log('A:', await setup(A.page, 'Alice', 880, 1500));
-console.log('B:', await setup(pageB, 'Bob', 892, 1506));
-await sleep(2500);
-const info = async (page) => page.evaluate(() => { const app = window.__app; return JSON.stringify({ peers: [...app.net.peers.values()].map((p) => ({ n: p.name, x: +p.x.toFixed(1), z: +p.z.toFixed(1) })), ghosts: app.remote.list.size, players: app.net.players.length }); });
-console.log('A sees:', await info(A.page));
-console.log('B sees:', await info(pageB));
-// view from A looking at the ghost
-await A.page.evaluate(() => { const g = window.__game; g.rig.snapBehind(); for (let i = 0; i < 60; i++) { g.update(1 / 60); window.__app.remote.update(1 / 60); } g.render(1 / 60); });
-await sleep(500);
-console.log(await shot(A.page, 'mp_a'));
-await A.close(); process.exit(0);
+import { chromium } from 'playwright-core';
+import { spawn } from 'node:child_process';
+import http from 'node:http';
+const PORT = 5481;
+const up = () => new Promise((res) => { const r = http.get({ host: '127.0.0.1', port: PORT, path: '/index.html', timeout: 1500 }, () => { r.destroy(); res(true); }); r.on('error', () => res(false)); r.on('timeout', () => { r.destroy(); res(false); }); });
+const server = spawn(process.execPath, ['server.mjs', String(PORT)], { cwd: process.cwd(), stdio: 'ignore' });
+for (let i = 0; i < 40 && !(await up()); i++) await new Promise((r) => setTimeout(r, 150));
+const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=d3d11', '--enable-unsafe-swiftshader'] });
+const mk = async (name) => {
+  const ctx = await browser.newContext({ viewport: { width: 640, height: 360 } }), page = await ctx.newPage();
+  page.on('pageerror', (e) => console.log(name, 'PAGEERROR', e.message));
+  await page.goto(`http://127.0.0.1:${PORT}/index.html?dev=1`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.__app && window.__app.mode === 'play' && window.__game?.player?.vehicle, null, { timeout: 240000 });
+  return page;
+};
+const [A, B] = await Promise.all([mk('A'), mk('B')]);
+const wait = (p, f, t = 25000) => p.waitForFunction(f, null, { timeout: t }).then(() => true).catch(() => false);
+console.log('A auto online', await wait(A, () => window.__app.net.connected), 'B auto online', await wait(B, () => window.__app.net.connected));
+// distinguish the two profiles (dev starts both as 'Dev')
+const idB = await B.evaluate(() => { window.__app.store.profile.name = 'Beta'; return window.__app.store.profile.id; });
+await A.evaluate(() => { window.__app.store.profile.name = 'Alpha'; });
+const codeB = idB.slice(-8).toUpperCase();
+console.log('codeB', codeB);
+const r1 = await A.evaluate(async (c) => (await window.__app.net.request('friends.add', { code: c })), codeB);
+console.log('A add B', JSON.stringify(r1));
+console.log('B sees request', await wait(B, () => window.__app.net.requests.length > 0, 5000));
+const idA = await A.evaluate(() => window.__app.store.profile.id);
+const r2 = await B.evaluate(async (id) => (await window.__app.net.request('friends.accept', { id })), idA);
+console.log('B accept', JSON.stringify(r2));
+console.log('A friends', await wait(A, () => window.__app.net.friends.length === 1, 5000), 'B friends', await wait(B, () => window.__app.net.friends.length === 1, 5000));
+console.log('persisted', JSON.stringify(await A.evaluate(() => window.__app.store.profile.social)));
+// put both in the same place: A in a car, B on foot
+await A.evaluate(() => { const g = window.__game, v = g.player.vehicle; v.place(-271, g.world.groundY(-271, 230, 60), 230, 0); });
+await B.evaluate(() => { const g = window.__game, P = g.player; P.exit?.(); P.vehicle = null; P.seq = null; P.state = 'foot'; P.x = -265; P.z = 240; P.y = g.world.groundY(-265, 240, 60); });
+await new Promise((r) => setTimeout(r, 2500));
+for (const [n, p] of [['A', A], ['B', B]]) console.log(n, JSON.stringify(await p.evaluate(() => { const net = window.__app.net, rem = window.__app.remote; return { peers: net.peers.size, ghosts: rem.list.size, foot: [...net.peers.values()].map((q) => q.foot), kinds: [...rem.list.values()].map((r) => (r.foot ? 'person' : 'car')), friendLoc: net.friends.map((f) => [f.online, Math.round(f.x || 0)]) }; })));
+// server restart simulation: new server would forget friends; client re-sends them on hello
+await A.evaluate(() => window.__app.net.ws.close());
+console.log('A reconnects', await wait(A, () => window.__app.net.connected, 25000));
+console.log('A friends after reconnect', await A.evaluate(() => window.__app.net.friends.length));
+await browser.close(); server.kill(); process.exit(0);

@@ -307,6 +307,34 @@ export function renderHornTone(sr, { f = 420, dur = 0.7 } = {}) {
 
 export function renderBoatHorn(sr) { return renderHornTone(sr, { f: 150, dur: 1.4 }); }
 
+export function renderThunder(sr, seed = 1) {
+  const r = rng(seed), n = Math.floor(sr * 4.8), out = new Float32Array(n);
+  let a = 0, b = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr, w = r() * 2 - 1;
+    a += (w - a) * 0.05; b += (a - b) * 0.04;
+    const env = Math.exp(-t * 0.75) * (1 + 0.6 * Math.sin(t * 5.3 + seed)) * Math.min(1, t / 0.04);
+    out[i] = (b * 11 + (t < 0.22 ? w * Math.exp(-t * 26) * 0.55 : 0)) * env;
+  }
+  return normalize(out, 0.9);
+}
+export function renderBell(sr, seed = 1) {
+  const n = Math.floor(sr * 2.2), out = new Float32Array(n);
+  for (const [f, d, g] of [[523, 1.1, 1], [1244, 0.7, 0.55], [1978, 0.45, 0.35], [2790, 0.3, 0.2]]) for (let i = 0; i < n; i++) { const t = i / sr; out[i] += Math.sin(6.2832 * f * t * (1 + 0.001 * seed)) * Math.exp(-t / d) * g; }
+  return normalize(out, 0.5);
+}
+export function renderSquelch(sr) {
+  const r = rng(11), n = Math.floor(sr * 0.2), out = new Float32Array(n);
+  let lp = 0;
+  for (let i = 0; i < n; i++) { const t = i / sr; lp += ((r() * 2 - 1) - lp) * 0.5; out[i] = (lp * 0.5 + Math.sin(6.2832 * 1450 * t) * 0.3 * (t < 0.07 ? 1 : 0)) * (t < 0.012 ? t / 0.012 : 1) * Math.exp(-t * 14); }
+  return normalize(out, 0.5);
+}
+export function renderBubble(sr, seed = 1) {
+  const r = rng(seed), n = Math.floor(sr * 0.09), out = new Float32Array(n), f0 = 380 + r() * 500;
+  let ph = 0;
+  for (let i = 0; i < n; i++) { const t = i / sr; ph += (6.2832 * f0 * (1 + t * 14)) / sr; out[i] = Math.sin(ph) * Math.exp(-t * 55); }
+  return normalize(out, 0.5);
+}
 export function renderWaveLoop(sr, seed = 3) {
   const r = rng(seed), dur = 9, n = Math.floor(sr * dur), out = new Float32Array(n);
   const lp = new Biquad(), lp2 = new Biquad(), bp = new Biquad();
@@ -373,6 +401,11 @@ export function* manifest(sr) {
   yield ['hornA', 'put', [renderHornTone(sr, { f: 420 })]];
   yield ['hornB', 'put', [renderHornTone(sr, { f: 330 })]];
   yield ['boatHorn', 'put', [renderBoatHorn(sr)]];
+  yield ['foghorn', 'put', [renderHornTone(sr, { f: 98, dur: 2.6 })]];
+  yield many('thunder', [1, 2, 3].map((s) => renderThunder(sr, s)));
+  yield many('bell', [1, 2].map((s) => renderBell(sr, s)));
+  yield ['squelch', 'put', [renderSquelch(sr)]];
+  yield many('bubble', [1, 2, 3, 4].map((s) => renderBubble(sr, s)));
   yield many('rainDrop', [1, 2, 3, 4].map((s) => renderRainDrop(sr, s)));
   yield ['waves', 'loop', [renderWaveLoop(sr)]];
   yield ['rain', 'loop', [renderNoiseLoop(sr, { color: 'white', hp: 1400, lp: 9000, seconds: 3 })]];
