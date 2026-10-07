@@ -214,6 +214,7 @@ export class Player {
     q.t += dt;
     const t = q.t;
     if (q.kind === 'board') return this.updateBoard(q, dt);
+    if (q.kind === 'mantle') return this.updateMantle(q, dt);
     if (q.kind === 'unboard' || q.kind === 'climb') return this.updateHop(q, dt);
     if (q.kind === 'enter') {
       const walk = q.walk, tOpen = walk - 0.12, tSit0 = walk + 0.12, tSit1 = walk + 0.62, tClose = walk + 0.56, tEnd = walk + 0.86;
@@ -434,6 +435,98 @@ export class Player {
     }
   }
 
+  // ---- jumping, vaulting and climbing ----
+  // highest solid top under a point, ignoring anything that does not reach down to roughly foot level
+  topAt(x, z, rad, y, maxH) {
+    let best = -Infinity;
+    this.game.world.colliders.query(x, z, rad + 1, y - 0.2, y + maxH + 0.1, (c) => {
+      if (!c.solid || c.removed || c.y0 > y + 0.5) return;
+      if (c.type === 'circle') { if (c.r < 0.6 || Math.hypot(x - c.x, z - c.z) > c.r + rad) return; }
+      else if (!obbVsCircle(c, { x, z, r: rad })) return;
+      if (c.y1 > best) best = c.y1;
+    });
+    return best;
+  }
+
+  // a surface the feet can rest on: a solid top at or just under foot level
+  supportAt(x, z, y) {
+    let best = -Infinity;
+    this.game.world.colliders.query(x, z, 1.2, y - 1.5, y + 0.3, (c) => {
+      if (!c.solid || c.removed || c.y0 > y + 0.5 || c.y1 > y + 0.29) return;
+      if (c.type === 'circle') { if (c.r < 0.6 || Math.hypot(x - c.x, z - c.z) > c.r + 0.18) return; }
+      else if (!obbVsCircle(c, { x, z, r: 0.18 })) return;
+      if (c.y1 > best) best = c.y1;
+    });
+    return best;
+  }
+
+  // wall, fence, crate or low roof in front of the player that can be vaulted or climbed; returns the landing point
+  ledgeAhead(dx, dz, inAir) {
+    const W = this.game.world, y = this.y, maxH = inAir ? 2.5 : 2.15;
+    const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+    const ft = this.topAt(this.x + dx * 0.55, this.z + dz * 0.55, 0.15, y, maxH);
+    const h = ft - y;
+    if (!(h >= 0.45 && h <= maxH)) return null;
+    const clear = (px, pz, base) => {
+      let hit = false;
+      W.colliders.query(px, pz, 0.7, base + 0.3, base + 1.7, (c) => { if (!c.solid || c.removed) return; if (c.type === 'circle' ? Math.hypot(px - c.x, pz - c.z) < c.r + 0.3 : obbVsCircle(c, { x: px, z: pz, r: 0.3 })) { hit = true; return false; } });
+      return !hit;
+    };
+    let top = null, land = null;
+    for (const k of [0.6, 0.9, 1.2, 1.6, 2.0, 2.5, 3.0]) {
+      const px = this.x + dx * k, pz = this.z + dz * k, t = this.topAt(px, pz, 0.25, y, maxH);
+      if (t > y + 0.4 && t <= y + maxH && !top && clear(px, pz, t)) top = { x: px, y: t, z: pz };
+      if (t < y + 0.3 && k > 0.8 && !land) {
+        const gr = this.groundAt(px, pz, y + 1);
+        if (!gr.deep && Math.abs(gr.y - y) < 1.2 && clear(px, pz, gr.y)) land = { x: px, y: gr.y, z: pz };
+      }
+    }
+    const vault = h <= 1.2 && land;
+    const to = vault ? land : top;
+    if (!to) return null;
+    return { h, vault: !!vault, to };
+  }
+
+  startMantle(L, face) {
+    const dur = L.vault ? 0.62 : 0.8 + L.h * 0.28;
+    this.seq = { kind: 'mantle', t: 0, v: null, from: { x: this.x, y: this.y, z: this.z }, to: L.to, h: L.h, vault: L.vault, dur, sound: false };
+    this.state = 'entering'; this.vx = this.vz = this.vy = 0; this.onGround = false; this.yaw = face;
+    this.game.emit('player:mantle', { x: this.x, y: this.y, z: this.z, vault: L.vault });
+  }
+
+  updateMantle(q, dt) {
+    const u = clamp(q.t / q.dur, 0, 1), T = q.to, F = q.from;
+    const face = Math.atan2(T.x - F.x, T.z - F.z);
+    this.yaw = dampAngle(this.yaw, face, 14, dt);
+    let x, y, z, pose, pu;
+    if (q.vault) {
+      const k = ease(u);
+      x = lerp(F.x, T.x, k); z = lerp(F.z, T.z, k);
+      y = lerp(F.y, T.y, k) + Math.sin(u * Math.PI) * (q.h * 0.55 + 0.35);
+      pose = 'vault'; pu = u;
+    } else {
+      const rise = ease(seg(u, 0, 0.62)), over = ease(seg(u, 0.5, 1));
+      const topY = T.y - 0.05;
+      x = lerp(F.x, T.x, over) + (T.x - F.x) * 0.05 * rise; z = lerp(F.z, T.z, over) + (T.z - F.z) * 0.05 * rise;
+      y = lerp(F.y, topY, rise) + (T.y - topY) * over;
+      pose = 'climb'; pu = u;
+    }
+    this.x = x; this.y = y; this.z = z;
+    this.phase += 11 * dt;
+    const target = poseFor(pose, this.animT, this.phase, 1);
+    if (!q.vault && u > 0.75) blendPose(target, poseFor('idle', this.animT, 0, 1), ease(seg(u, 0.75, 1)), target);
+    blendPose(this.pose, target, 1 - Math.exp(-dt * 18), this.pose);
+    applyPose(this.rig, this.pose);
+    this.rig.root.position.set(x, y, z);
+    this.rig.root.rotation.set(0, this.yaw, 0);
+    void pu;
+    if (q.t >= q.dur) {
+      this.seq = null; this.state = 'foot';
+      this.x = T.x; this.z = T.z; this.y = T.y; this.vx = Math.sin(this.yaw) * (q.vault ? 2.2 : 0); this.vz = Math.cos(this.yaw) * (q.vault ? 2.2 : 0); this.vy = 0; this.onGround = true;
+      this.game.emit('player:landed', { x: T.x, y: T.y, z: T.z, speed: 2, soft: true });
+    }
+  }
+
   // ground under a point, seeing through the sea-surface placeholder to the bed
   groundAt(x, z, yRef) {
     const W = this.game.world, gr = W.ground(x, z, yRef);
@@ -585,7 +678,7 @@ export class Player {
     const sprint = input.held('sprint') && this.stamina > 0.05;
     const maxV = want > 0 ? (sprint ? 6.4 : input.gp() && want < 0.6 ? 1.6 : 3.4) : 0;
     const tvx = mx * maxV / Math.max(want, 1e-6) * Math.min(1, want), tvz = mz * maxV / Math.max(want, 1e-6) * Math.min(1, want);
-    const acc = want > 0 ? 10 : 14;
+    const acc = (want > 0 ? 10 : 14) * (this.onGround ? 1 : 0.28);
     this.vx = damp(this.vx, want > 0 ? tvx : 0, acc, dt);
     this.vz = damp(this.vz, want > 0 ? tvz : 0, acc, dt);
     this.stamina = clamp(this.stamina + (sprint && want > 0 ? -dt * 0.12 : dt * 0.2), 0, 1);
@@ -612,7 +705,8 @@ export class Player {
     }
     const gr = this.groundAt(nx, nz, this.y + 0.5);
     if (gr.deep && this.y <= gr.surface - 0.1) { this.x = nx; this.z = nz; this.startSwim(nx, nz, gr.surface, -this.vy); this.updateSwim(dt, input, camYaw); return; }
-    const gy = gr.deep ? gr.surface - 1.08 : gr.y;
+    let gy = gr.deep ? gr.surface - 1.08 : gr.y;
+    if (!gr.deep) { const sup = this.supportAt(nx, nz, this.y); if (sup > gy) gy = sup; }
     this.wade = gr.deep || gr.depth > 0.12 ? clamp(gr.depth, 0, 1) : 0;
     if (this.wade > 0.05) {
       const dr = Math.min(0.9, this.wade * 0.5 * dt * 6); this.vx *= 1 - dr; this.vz *= 1 - dr;
@@ -620,13 +714,31 @@ export class Player {
       if (this.speed > 1 && this.wadeT <= 0) { this.wadeT = 0.28 - Math.min(0.12, this.speed * 0.02); g.emit('player:wade', { x: this.x, y: gr.surface ?? this.y, z: this.z, speed: this.speed, depth: this.wade }); }
     }
     if (gy - this.y < 0.55) { this.x = nx; this.z = nz; }
-    if (gy > this.y - 0.05) { this.y = gy; this.vy = 0; this.onGround = true; }
-    else { this.vy -= 9.8 * dt; this.y = Math.max(gy, this.y + this.vy * dt); this.onGround = false; }
-    if (!locked && input.hit('jump') && Math.abs(this.y - gy) < 0.05 && !input.held('handbrake')) this.vy = 4.2;
+    const wasAir = !this.onGround, fallV = this.vy;
+    const rising = this.vy > 0.1;
+    if (gy > this.y - 0.05 && (!rising || gy > this.y + 0.02)) { this.y = gy; this.vy = 0; this.onGround = true; }
+    else { this.vy -= 9.8 * dt; this.y = Math.max(gy, this.y + this.vy * dt); this.onGround = false; if (this.y <= gy && this.vy <= 0) { this.y = gy; this.vy = 0; this.onGround = true; } }
+    if (this.onGround && wasAir && fallV < -2.2) g.emit('player:landed', { x: this.x, y: this.y, z: this.z, speed: -fallV, soft: false });
+    this.coyote = this.onGround ? 0.12 : Math.max(0, (this.coyote || 0) - dt);
+    if (!locked) {
+      // Space: jump; next to a wall, fence or crate it vaults or climbs instead; keep holding it in the air to grab a ledge
+      const mvx = want > 0.1 ? mx : Math.sin(this.yaw), mvz = want > 0.1 ? mz : Math.cos(this.yaw);
+      const face = Math.atan2(mvx, mvz);
+      if (input.hit('jump') && (this.onGround || this.coyote > 0)) {
+        const L = this.ledgeAhead(mvx, mvz, false);
+        if (L) { this.startMantle(L, face); this.rig.root.position.set(this.x, this.y, this.z); return; }
+        this.vy = 5.2; this.onGround = false; this.coyote = 0; this.y += 0.01;
+        g.emit('player:jump', { x: this.x, y: this.y, z: this.z, speed: this.speed });
+      } else if (!this.onGround && input.held('jump') && want > 0.1 && this.vy > -3.5) {
+        const L = this.ledgeAhead(mvx, mvz, true);
+        if (L) { this.startMantle(L, face); this.rig.root.position.set(this.x, this.y, this.z); return; }
+      }
+    }
     this.punchT = Math.max(0, (this.punchT || 0) - dt);
     if (!locked && input.mouse.clicked && this.punchT <= 0 && this.onGround) { this.punchT = 0.34; this.punchHit = false; this.yaw = camYaw; this.punchN = ((this.punchN || 0) + 1) % 3; }
     if (this.punchT > 0 && !this.punchHit && this.punchT < 0.2) { this.punchHit = true; g.emit('player:punch', { x: this.x, y: this.y, z: this.z, yaw: this.yaw, n: this.punchN }); }
     let anim = this.speed < 0.25 ? 'idle' : this.speed < 2.4 ? 'walk' : this.speed < 5 ? 'run' : 'sprint';
+    if (!this.onGround && this.y - gy > 0.18 && this.state === 'foot') anim = 'jump';
     if (this.state === 'hands') anim = 'hands';
     if (this.state === 'cuffed') anim = 'cuffed';
     if (this.emote) { anim = this.emote.name; this.emote.t -= dt; if (this.emote.t <= 0 || want > 0.1) this.emote = null; }

@@ -74,7 +74,7 @@ export class RemotePlayers {
         r.group.position.set(r.x, r.y, r.z); r.group.rotation.set(sw && p.speed > 0.4 ? 1.2 : 0, r.yaw, 0);
       } else {
         r.group.position.set(r.x, r.y, r.z); r.group.rotation.set(0, r.yaw, 0);
-        r.spin += (p.speed / 0.33) * dt;
+        r.spin += (p.speed / 0.33) * dt; r.speedNet = p.speed;
         for (const w of r.car.wheels) w.spin.rotation.x = r.spin;
       }
       r.tag.visible = d < 140;

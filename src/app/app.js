@@ -73,6 +73,7 @@ export class App {
     this.missions = new Missions(this);
     this.extras = new Extras(this);
     this.remote = new RemotePlayers(this);
+    this.game.remotes = this.remote;
     this.auction = new AuctionHouse(this);
     this.replay = new Replay(this.game);
     this.meet = new CarMeet(this);

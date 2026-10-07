@@ -1,7 +1,7 @@
 import { launch, shot, sleep } from './harness.mjs';
 // Walk up to a building, press E, look around the room, talk, take an item, and walk back out.
-const { page, close, logs } = await launch({ width: 1100, height: 620 });
-await page.waitForFunction(() => window.__app && window.__app.mode === 'play', null, { timeout: 240000 });
+const { page, close, logs } = await launch({ width: 480, height: 270, query: '?dev=1&nophoto=1' });
+await page.waitForFunction(() => window.__app && window.__app.mode === 'play', null, { timeout: 900000 });
 const TYPE = process.env.TYPE || '';
 const r = await page.evaluate(async (TYPE) => {
   const a = window.__app, g = window.__game, P = g.player, I = g.input, out = {};
@@ -39,7 +39,7 @@ const r = await page.evaluate(async (TYPE) => {
   out.visible = g.world.group.visible;
   return out;
 }, TYPE);
-import fs from 'node:fs';
+import fs from 'node:fs'; fs.mkdirSync('data/shots', { recursive: true });
 for (const k of ['img1', 'img2']) if (r[k]) { fs.writeFileSync(`data/shots/interior_${k}.jpg`, Buffer.from(r[k].split(',')[1], 'base64')); delete r[k]; }
 console.log(JSON.stringify(r));
 console.log('logs:', logs.filter((l) => !/getImageData/.test(l)).slice(0, 8).join('\n') || 'none');

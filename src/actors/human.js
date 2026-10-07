@@ -40,6 +40,9 @@ export function poseFor(state, t, ph, amt = 1, out = { ...REST }) {
       out.anL = Math.max(0, -s) * 0.3; out.anR = Math.max(0, s) * 0.3;
       break;
     }
+    case 'jump': { const up = Math.max(0, Math.min(1, amt)); out.shLx = -1.3; out.shRx = -1.0; out.shLz = 0.55; out.shRz = -0.55; out.elL = -0.5; out.elR = -0.5; out.hpLx = -0.95; out.knL = 1.2; out.hpRx = 0.25; out.knR = 0.55; out.lean = 0.12 * up; out.hipY = 0.02; break; }
+    case 'vault': { out.shLx = -1.5; out.shRx = -1.5; out.shLz = 0.35; out.shRz = -0.35; out.elL = -0.25; out.elR = -0.25; out.hpLx = -1.15; out.hpRx = -0.95; out.hpLz = 0.35; out.hpRz = -0.2; out.knL = 1.35; out.knR = 1.2; out.lean = 0.3; out.headX = -0.15; break; }
+    case 'climb': { const s = Math.sin(ph); out.shLx = -2.7 + s * 0.35; out.shRx = -2.7 - s * 0.35; out.shLz = 0.2; out.shRz = -0.2; out.elL = -0.5 - Math.max(0, s) * 0.5; out.elR = -0.5 - Math.max(0, -s) * 0.5; out.hpLx = -0.9 + s * 0.35; out.hpRx = -0.9 - s * 0.35; out.knL = 1.2 + s * 0.2; out.knR = 1.2 - s * 0.2; out.lean = 0.08; out.headX = -0.3; break; }
     case 'hands': { out.shLx = -2.9; out.shRx = -2.9; out.shLz = 0.25; out.shRz = -0.25; out.elL = -0.3; out.elR = -0.3; out.headX = -0.05; break; }
     case 'cuffed': { out.shLx = 0.45; out.shRx = 0.45; out.shLz = -0.25; out.shRz = 0.25; out.elL = -0.6; out.elR = -0.6; out.lean = 0.12; out.headX = 0.15; break; }
     case 'sit': case 'drive': {
