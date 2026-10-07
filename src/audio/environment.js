@@ -98,6 +98,9 @@ export class AcousticEnv {
           if (over) hit++;
         }
         cover = hit / q.length;
+        // a bridge or road deck overhead counts as a roof (the road graph knows every elevated deck)
+        const dk = W.decks ? W.decks.at(cam.x, cam.z, cam.y + 20) : null;
+        if (dk !== null && dk > cam.y + 2.5) cover = Math.max(cover, 0.85);
         // walls to both sides within a few metres (urban canyon, tunnel bore)
         const f = game.camera.getWorldDirection(_dir), rx = f.z, rz = -f.x, l = Math.hypot(rx, rz) || 1;
         const side = (s) => 1 - W.colliders.raycast(cam.x, cam.z, cam.x + (rx / l) * 14 * s, cam.z + (rz / l) * 14 * s, cam.y - 0.5, cam.y + 4);

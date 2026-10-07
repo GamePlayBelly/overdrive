@@ -18,7 +18,7 @@ const R = await page.evaluate(async () => {
   const drive = 0;
   P.exit(); await sleepMs(300);
   const snap = () => { const r = []; for (let s = 0; s < 10; s++) { const b = s * 25, p = A.veh.params; if (p[b] > 0.5) r.push({ rpm: Math.round(p[b + 1]), gain: +p[b + 3].toFixed(3), pan: +p[b + 4].toFixed(2), kind: p[b + 8], lod: p[b + 21], tire: +p[b + 18].toFixed(3), chain: +p[b + 23].toFixed(2), lp: +p[b + 9].toFixed(2) }); } return r; };
-  await sleepMs(2500);
+  { const t0 = A.veh.tickN; for (let i = 0; i < 200 && A.veh.tickN < t0 + 16; i++) await sleepMs(250); }
   out.dbg = { cam: [cam.x | 0, cam.z | 0], cars: cars.map((c) => [c.id, Math.round(Math.hypot(c.x - cam.x, c.z - cam.z))]), cands: A.veh.cands.map((c) => [c.id, Math.round(Math.sqrt(c.d2))]), tick: A.veh.tickN, ghost: !!A.veh.ghost, states: A.veh.states.size };
   out.voices = snap();
   out.cull = { far300m: !out.voices.some((v) => v.kind === 3 && v.gain > 0 && v.lod === 2 && false), candidates: A.veh.cands.length };
@@ -33,7 +33,7 @@ const R = await page.evaluate(async () => {
   A.veh.engines = origEng;
   // remote players share the bank
   g.remotes = { list: new Map([[1, { id: 'peer1', def: VEHICLE_BY_ID.gts, x: cam.x + 25, y: cam.y, z: cam.z, speedNet: 25 }]]) };
-  A.veh.scan = A.veh.constructor.prototype.scan; await sleepMs(900);
+  A.veh.scan = A.veh.constructor.prototype.scan; { const t0 = A.veh.tickN; for (let i = 0; i < 120 && A.veh.tickN < t0 + 16; i++) await sleepMs(250); }
   out.remote = A.veh.cands.some((c) => c.kind === 'remote');
   // jump / landing / vault sounds are wired
   let played = 0; const orig = A.play.bind(A); A.play = (n, o) => { played++; return orig(n, o); };

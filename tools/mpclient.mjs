@@ -19,29 +19,30 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'od-'));
 const boot = (port) => new Promise((res) => { const srv = http.createServer((q, r) => r.end('ok')); const sockets = new Set(); srv.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); }); srv.on('upgrade', (q, s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); }); const g = attachGameServer(srv, dir); srv.listen(port, () => res({ srv, g, kill: () => new Promise((r) => { for (const s of sockets) s.destroy(); srv.close(r); }) })); });
 
 const profile = newProfile('Tester'); profile.id = 'prof-test-12345678';
-const app = { profile, store: { replace() {}, profile }, heroSpec: () => ({ model: 'civa' }) };
+const app = { profile, store: { replace() {}, profile, save() {} }, heroSpec: () => ({ model: 'civa' }) };
+const G = { player: { vehicle: null, x: 0, y: 0, z: 0, yaw: 0, speed: 0 } };
+const pump = async (net, ms) => { const end = Date.now() + ms; while (Date.now() < end && !net.connected) { net.tick(0.5, G); await sleep(15); } };
 let s = await boot(5491);
 const net = new NetClient(app);
 ok(net.url === 'ws://127.0.0.1:5491/ws', 'default address is this host: ' + net.url);
-net.autoConnect();
-for (let i = 0; i < 40 && !net.connected; i++) await sleep(100);
+await pump(net, 5000);
 ok(net.connected, 'auto-connected');
 ok(net.count === 1, 'sees itself online');
 // link drops: server dies
 let dropped = false; net.on('disconnect', () => { dropped = true; });
 await s.kill(); await sleep(400);
 ok(!net.connected && dropped, 'link loss detected');
-ok(net.wantOnline && net.retryT > 0, 'retry scheduled (' + net.retryT + ' s)');
+ok(net.auto && !net.manualOff && net.lastError === 'Connection lost', 'will retry on its own: ' + net.lastError);
 s = await boot(5491);
-for (let i = 0; i < 400 && !net.connected; i++) { net.tick(0.05, { player: { vehicle: null, x: 0, y: 0, z: 0, yaw: 0, speed: 0 } }); await sleep(10); }
+await pump(net, 15000);
 ok(net.connected, 'reconnected by itself after the server came back');
 // keepalive
 net.pingT = 100; net.tick(0.01, { player: { vehicle: null, x: 0, y: 0, z: 0, yaw: 0, speed: 0 } });
 await sleep(200); ok(performance.now() - net.lastRx < 1000, 'server traffic keeps arriving');
 // manual disconnect stays off
 net.disconnect(); await sleep(200);
-ok(!net.connected && !net.wantOnline && store.get('od.net') === 'off', 'manual disconnect sticks');
-for (let i = 0; i < 100; i++) net.tick(0.1, { player: { vehicle: null, x: 0, y: 0, z: 0, yaw: 0, speed: 0 } });
+ok(!net.connected && net.manualOff && store.get('od.net') === 'off', 'manual disconnect sticks');
+for (let i = 0; i < 100; i++) net.tick(0.5, G);
 ok(!net.ws, 'does not reconnect after a manual disconnect');
 // explicit address is remembered and understood in several spellings
 globalThis.location.search = '?server=https://game.example.com';

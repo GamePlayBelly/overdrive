@@ -4,10 +4,12 @@ import { buildHuman, poseFor, applyPose, blendPose, REST } from './human.js';
 import { clamp, lerp, damp, dampAngle, smoothstep, wrapAngle } from '../core/math.js';
 import { RNG } from '../core/rng.js';
 import { VEHICLE_BY_ID } from '../data/vehicles.js';
+import { WANTED } from '../data/wanted.js';
+import { CoastGuard } from './coastGuard.js';
 
 export const WANTED_NAMES = ['', 'Investigation', 'Active pursuit', 'Multiple units', 'Roadblocks', 'Advanced pursuit', 'City-wide response'];
-const UNITS_BY_LEVEL = [0, 1, 2, 4, 5, 6, 8];
-const SPEED_BY_LEVEL = [0, 26, 36, 42, 46, 52, 58];
+const UNITS_BY_LEVEL = WANTED.road.units;
+const SPEED_BY_LEVEL = WANTED.road.speed;
 const OFFICER_LOOK = { height: 1.8, build: 0.55, skin: '#c69272', hair: { style: 'buzz', color: '#2b1e16' }, facial: 'none', top: { type: 'shirt', color: '#1f2a3d' }, jacket: { type: 'none', color: '#1f2a3d' }, pants: { type: 'suit', color: '#161c28' }, shoes: { type: 'boots', color: '#111111' }, hat: { type: 'cap', color: '#161c28' }, glasses: 'none', watch: 'smart' };
 
 // --------------- helicopter ---------------
@@ -114,6 +116,8 @@ export class Police {
     this.cooldown = 0;
     this.enabled = true;
     this.stats = { maxLevel: 0, escapes: 0, arrests: 0, pursuitTime: 0, unitsDisabled: 0 };
+    this.peak = 0;
+    this.cg = new CoastGuard(game);
   }
 
   get target() {
@@ -129,9 +133,9 @@ export class Police {
     const district = this.game.world.districtAt(x, z);
     const heat = this.game.heat?.get(district.id) || 0;
     this.game.heat?.add(district.id, sev * 2);
-    const map = { speeding: 1, redlight: 1, hitCar: 1, hitPed: 2, carjack: 1, assault: 1, hitPolice: 2, ramPolice: 3, sidewalk: 1, prop: 0, evade: 2, trespass: 1 };
+    const map = WANTED.crimes;
     let lvl = map[type] ?? 1;
-    this.points += sev;
+    this.points += WANTED.severity[type] ?? sev;
     if (type === 'hitCar' && this.points < 3 && !witnessed) lvl = 0;
     if (type === 'prop' && this.points < 6) lvl = 0;
     if (type === 'prop' && this.points >= 6) lvl = 1;
@@ -149,7 +153,7 @@ export class Police {
   witnessedBy(x, z) {
     for (const u of this.units) if (Math.hypot(u.v.x - x, u.v.z - z) < 70 && this.los(u.v.x, u.v.z, u.v.y, x, z)) return u;
     for (const c of this.game.traffic.cars) if (c.role === 'police' && Math.hypot(c.x - x, c.z - z) < 55 && this.los(c.x, c.z, c.y, x, z)) return c;
-    return null;
+    return this.cg.witness(x, z);
   }
 
   los(ax, az, ay, bx, bz) {
@@ -160,7 +164,7 @@ export class Police {
     lvl = clamp(lvl, 0, 6);
     if (lvl <= this.level) return;
     const prev = this.level;
-    this.level = lvl;
+    this.level = lvl; this.peak = lvl;
     this.escape = 0;
     this.stats.maxLevel = Math.max(this.stats.maxLevel, lvl);
     if (prev === 0) { this.bounty = 0; this.pursuitT = 0; this.disabledUnits = 0; this.game.emit('police:start', { level: lvl, reason }); }
@@ -173,7 +177,7 @@ export class Police {
     this.level = 0; this.escape = 0; this.bust = 0; this.points = 0; this.pullOver = null;
     for (const u of this.units) { u.mode = 'return'; u.returnT = 20; u.v.lights.bar = false; u.v.lights.siren = false; }
     for (const h of this.helis) h.leaving = true;
-    this.clearRoadblocks();
+    this.clearRoadblocks(); this.cg.dismiss();
     this.game.emit('police:clear', { reason, level: lvl, bounty: this.bounty, time: this.pursuitT });
     this.cooldown = reason === 'escape' ? 3 : 8;
   }
@@ -256,6 +260,8 @@ export class Police {
     const g = this.game;
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.patrols(dt);
+    const T0 = this.target, wt = this.cg.onWater(T0);
+    this.cg.update(dt, T0, wt);
     // pending civilian reports
     for (let i = this.reports.length - 1; i >= 0; i--) {
       const r = this.reports[i];
@@ -305,15 +311,20 @@ export class Police {
         const covered = this.game.world.decks.at(T.x, T.z, T.y + 20) !== null && this.game.world.decks.at(T.x, T.z, T.y + 20) > T.y + 3;
         if (d < 200 && !covered) { seen = true; break; }
       }
-      if (seen) this.markSeen(); else this.seen = false;
+      if (!seen && wt && this.cg.sees(T)) seen = true;
+      if (seen) { this.markSeen(); this.peak = Math.max(this.peak, this.level); } else this.seen = false;
     }
     if (!this.seen) this.unseenT += dt;
     // escape progress
-    const escapeTime = (10 + this.level * 7) * (this.game.heat ? 1 + this.game.heat.get(g.world.districtAt(T.x, T.z).id) / 200 : 1);
+    const escapeTime = (wt ? WANTED.sea.escape.base + this.level * WANTED.sea.escape.perLevel : 10 + this.level * 7) * (this.game.heat ? 1 + this.game.heat.get(g.world.districtAt(T.x, T.z).id) / 200 : 1);
     if (!this.seen && this.unseenT > 2) {
       const hidden = this.isHidden(T);
       this.escape = Math.min(1, this.escape + (dt / escapeTime) * (hidden ? 1.8 : 1));
       if (this.escape >= 1) { this.stats.escapes++; this.clear('escape'); return; }
+      if (WANTED.stepDown && this.level > 1) {
+        const tl = Math.max(1, Math.ceil(this.peak * (1 - this.escape)));
+        if (tl < this.level) { const prev = this.level; this.level = tl; g.emit('police:level', { level: tl, prev, reason: 'cooling' }); this.radio('Suspect has not been seen. Reducing response.'); }
+      }
     } else if (this.seen) this.escape = Math.max(0, this.escape - dt * 0.35);
     // escalation over time while pursued
     if (this.seen && this.level >= 2) {
@@ -323,7 +334,7 @@ export class Police {
     }
     // level 1: pull-over opportunity
     if (this.level === 1 && this.seen) {
-      const u = this.units.find((q) => Math.hypot(q.v.x - T.x, q.v.z - T.z) < 30);
+      const u = this.units.find((q) => Math.hypot(q.v.x - T.x, q.v.z - T.z) < 30) || this.cg.units.find((q) => Math.hypot(q.v.x - T.x, q.v.z - T.z) < 40);
       if (u) {
         this.pullOver = this.pullOver || { t: 0 };
         if (T.speed < 1.5) { this.pullOver.t += dt; if (this.pullOver.t > 2.5) { this.ticket(u); return; } }
@@ -333,14 +344,14 @@ export class Police {
     // bounty
     this.bounty += dt * this.level * 6 * (this.seen ? 1.4 : 0.6);
     // manage units
-    const want = UNITS_BY_LEVEL[this.level];
+    const want = wt ? (this.level >= 3 ? 1 : 0) : UNITS_BY_LEVEL[this.level];
     this.spawnCd = (this.spawnCd || 0) - dt;
     if (this.units.length < want && this.spawnCd <= 0) {
       this.spawnCd = this.level >= 5 ? 1 : 2;
       if (this.units.length === 0 && this.level === 1) this.dispatchPatrol() || this.spawnUnit(true);
       else this.spawnUnit(true);
     }
-    const heliWant = this.level >= 6 ? 2 : this.level >= 5 ? 1 : 0;
+    const heliWant = wt ? WANTED.sea.heli[this.level] : this.level >= 6 ? 2 : this.level >= 5 ? 1 : 0;
     if (this.helis.filter((h) => !h.leaving).length < heliWant) {
       const h = new Helicopter(g);
       h.x = T.x + 300; h.z = T.z - 200; h.y = 120;
@@ -393,7 +404,7 @@ export class Police {
     }
     this.updateRoadblocks(dt);
     // busted meter
-    const close = this.units.some((u) => !u.v.disabled && Math.hypot(u.v.x - T.x, u.v.z - T.z) < (T.veh ? 9 : 6) && Math.abs(u.v.y - T.y) < 3) || this.officers.some((o) => Math.hypot(o.x - T.x, o.z - T.z) < 2.5) || (g.seaTraffic && g.seaTraffic.boats.some((b) => b.patrol && !b.v.disabled && Math.hypot(b.v.x - T.x, b.v.z - T.z) < 12));
+    const close = this.units.some((u) => !u.v.disabled && Math.hypot(u.v.x - T.x, u.v.z - T.z) < (T.veh ? 9 : 6) && Math.abs(u.v.y - T.y) < 3) || this.officers.some((o) => Math.hypot(o.x - T.x, o.z - T.z) < 2.5) || this.cg.units.some((u) => !u.v.disabled && Math.hypot(u.v.x - T.x, u.v.z - T.z) < 14 && Math.abs(u.v.y - T.y) < 4);
     const slow = T.veh ? T.speed < 2.2 || T.veh.disabled : T.speed < 3.5;
     if (close && slow && this.level >= 2) this.bust = Math.min(1, this.bust + dt / (T.veh ? 3.2 : 2));
     else this.bust = Math.max(0, this.bust - dt * 0.6);
@@ -557,7 +568,7 @@ export class Police {
     const unit = this.units.filter((u) => !u.v.disabled).sort((a, b) => Math.hypot(a.v.x - T.x, a.v.z - T.z) - Math.hypot(b.v.x - T.x, b.v.z - T.z))[0];
     for (const u of this.units) { u.ai.mode = 'idle'; u.ai.path = []; u.v.input = { throttle: 0, brake: 1, steer: 0, hand: true }; }
     const lvl = this.level;
-    this.level = 0;
+    this.level = 0; this.cg.dismiss();
     this.bust = 0;
     g.emit('police:arrest', { level: lvl, bounty: this.bounty, unit });
     this.clearRoadblocks();

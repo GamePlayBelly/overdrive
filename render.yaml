@@ -4,5 +4,5 @@ services:
     runtime: node
     buildCommand: npm install --omit=dev
     startCommand: node server.mjs
-    plan: free
     healthCheckPath: /healthz
+    plan: free

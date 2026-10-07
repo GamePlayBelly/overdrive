@@ -43,7 +43,7 @@ export class Interiors {
       if (d >= bd) return;
       const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw), vx = c.x - P.x, vz = c.z - P.z, l = Math.hypot(vx, vz) || 1;
       // roughly facing it, or right up against the wall (walking along a facade still offers the door)
-      if ((fx * vx + fz * vz) / l < (d < 1.3 ? -0.35 : 0.1)) return;
+      if ((fx * vx + fz * vz) / l < (d < 1.3 ? -0.35 : -0.25)) return;
       bd = d; best = c;
     });
     if (!best) return null;
@@ -51,20 +51,21 @@ export class Interiors {
     let type;
     const near = (p, r) => p && Math.hypot(p.x - c.x, p.z - c.z) < r;
     if (near(poi.police, 45)) type = 'police'; else if (near(poi.garage, 30)) type = 'workshop'; else if (near(poi.diner, 25)) type = 'cafe'; else if (near(poi.motorClub, 40)) type = 'bar';
+    else if (c.ref === 'house') type = 'house';
     else type = pick(STYLE_TYPES[W.districtAt(c.x, c.z).style] || ['market', 'cafe', 'house'], seed >>> 3);
     return { c, type, seed, name: pick(NAMES[type], seed >>> 5), x: c.x, z: c.z };
   }
 
-  update(dt) {
+  update(dt, act = false) {
     const app = this.app, g = this.g, P = g.player;
     this.prompt = null;
     if (this.busy || app.mode !== 'play' || g.lock) return;
-    if (this.inside) { this.updateInside(dt); return; }
+    if (this.inside) { this.updateInside(dt, act); return; }
     if (P.vehicle || P.state !== 'foot' || P.seq) return;
     const d = this.doorway();
     if (!d) return;
     this.prompt = { key: 'E', text: `Enter ${d.name}` };
-    if (g.input.hit('interact')) this.enter(d);
+    if (act || g.input.hit('interact')) this.enter(d);
   }
 
   // ---------------------------------------------------------------- transitions
@@ -123,7 +124,7 @@ export class Interiors {
   }
 
   // ---------------------------------------------------------------- inside
-  updateInside(dt) {
+  updateInside(dt, act = false) {
     const R = this.inside, g = this.g, P = g.player, I = g.input;
     g.sky.hemi.intensity = 0.2; g.sky.sun.intensity = 0;
     for (const n of R.npcs) { n.t += dt; const tgt = poseFor(n.anim, n.t, 0); blendPose(n.rig.pose, tgt, 1 - Math.exp(-dt * 8), n.rig.pose); applyPose(n.rig, n.rig.pose); const dx = P.x - n.x, dz = P.z - n.z; if (Math.hypot(dx, dz) < 7) n.rig.root.rotation.y = Math.atan2(dx, dz); }
@@ -136,7 +137,7 @@ export class Interiors {
     if (!near) return;
     const text = near.type === 'npc' ? `Talk to ${near.n.name}` : near.type === 'item' ? `Take ${near.it.label}` : 'Leave';
     this.prompt = { key: 'E', text };
-    if (!I.hit('interact')) return;
+    if (!(act || I.hit('interact'))) return;
     if (near.type === 'door') this.leave(); else if (near.type === 'item') this.take(near.it); else this.talk(near.n);
   }
 

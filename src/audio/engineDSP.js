@@ -131,6 +131,8 @@ class Voice {
     const fb = this.bovT > 0 ? 3600 - 1800 * (1 - this.bovT / this.bovLen) : 2400, thb = (TWO_PI * fb) / sr, rb = Math.exp(-1 / (0.0012 * sr)), b1 = 2 * rb * Math.cos(thb), b2 = -rb * rb, bg = Math.sin(thb);
     const tireLp = Math.min(0.5, (cur[P.tireHz] / sr) * 6.28), tireG = cur[P.tire];
     const transG = cur[P.trans];
+    this.ovr += ((decel ? 1 : 0) * (0.3 + 0.7 * Math.min(1, rpm1 / 5000)) - this.ovr) * Math.min(1, n / (0.05 * sr));
+    const ebv = Math.min(1, this.ovr);
     const a1 = this.a1, a2 = this.a2, y1 = this.y1, y2 = this.y2;
     const stW = (TWO_PI * (170 + crank * 70)) / sr;
     for (let i = 0; i < n; i++) {
@@ -165,7 +167,8 @@ class Voice {
       for (let c = 0; c < COMP; c++) {
         const y = a1[c] * y1[c] + a2[c] * y2[c];
         y2[c] = y1[c]; y1[c] = y;
-        out += y;
+        // engine braking: fuller exhaust body, duller mid bark and top edge
+        out += c < 2 ? y * (1 + 0.25 * ebv) : c === 2 ? y * (1 - 0.4 * ebv) : c === 3 ? y * (1 - 0.65 * ebv) : y;
       }
       out *= 0.5;
       const nz = rnd() * 2 - 1;

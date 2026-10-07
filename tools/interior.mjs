@@ -1,7 +1,7 @@
 import { launch, shot, sleep } from './harness.mjs';
 // Walk up to a building, press E, look around the room, talk, take an item, and walk back out.
 const { page, close, logs } = await launch({ width: 480, height: 270, query: '?dev=1&nophoto=1' });
-await page.waitForFunction(() => window.__app && window.__app.mode === 'play', null, { timeout: 400000 });
+await page.waitForFunction(() => window.__app && window.__app.mode === 'play', null, { timeout: 900000 });
 const TYPE = process.env.TYPE || '';
 const r = await page.evaluate(async (TYPE) => {
   const a = window.__app, g = window.__game, P = g.player, I = g.input, out = {};

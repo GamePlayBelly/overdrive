@@ -80,6 +80,7 @@ export class App {
     this.interiors = new Interiors(this);
     this.blipFns.push(() => this.extras.blips());
     this.blipFns.push(() => this.meet.blips());
+    this.blipFns.push(() => this.game.maritime.blips());
     this.menu = new Menu(this);
     registerPages(this.menu);
     this.home = new Home(this);
@@ -258,6 +259,7 @@ export class App {
     g.on('hud:toast', (e) => toast({ title: e.text }));
     g.on('toast', (e) => toast({ title: e.text }));
     g.on('police:radio', (e) => this.hud.say('Dispatch', e.text, 3800));
+    g.on('marine:radio', (e) => this.hud.say(e.who || 'Coast Guard', e.text, 4200));
     g.on('police:level', (e) => { if (e.level > e.prev) { this.hud.gain(`Wanted level ${e.level}`, '#ff6b6b'); g.audio.ui('error'); } });
     g.on('police:clear', (e) => {
       if (e.level && e.reason === 'escape') {
@@ -435,7 +437,7 @@ export class App {
 
   saveWorld() {
     const g = this.game, p = this.profile; if (!p) return;
-    const pos = g.player.vehicle || g.player;
+    const pos = this.interiors?.inside && this.interiors.ret ? this.interiors.ret : (g.player.vehicle || g.player);
     this.store.patch((pr) => { pr.world.time = g.sky.time; pr.world.weather = g.sky.weather; pr.world.last = { x: pos.x, z: pos.z, yaw: pos.yaw || 0 }; pr.world.day = g.sky.day || pr.world.day; });
     const v = g.player.vehicle;
     if (v && v.uid) this.store.act({ type: 'setDamage', uid: v.uid, damage: v.damage.total, km: 0 });
@@ -625,14 +627,14 @@ export class App {
         this.saveT += dt;
         if (this.saveT > 25) { this.saveT = 0; this.saveWorld(); }
         this.store.tick();
-        if (!this._autoNet && this.profile && !location.search.includes('dev=')) { this._autoNet = true; this.net.autoConnect(); }
         this.net.tick(dt, g);
+        const act = g.input.hit('interact');
         g.update(dt);
         this.replay.record(dt);
         this.missions.update(dt);
         this.extras.update(dt); this.extras.updateEvents(dt);
         this.meet.update(dt);
-        this.interiors.update(dt);
+        this.interiors.update(dt, act);
         this.remote.update(dt);
         this.hud.update(dt);
         this.checkAmbient(dt);

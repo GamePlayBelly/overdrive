@@ -121,13 +121,15 @@ export class CameraRig {
         this.footPitch = clamp(this.footPitch + (input.invertY ? -1 : 1) * (mdy * 0.0028 * input.mouseSens + ly * dt * 2), -0.5, 1.2);
       }
       const d = 4.2 + this.footPitch * 1.6;
-      const head = new THREE.Vector3(pl.x, pl.y + 1.55, pl.z);
+      const swimming = pl.state === 'swim', diving = swimming && pl.dive > 0.35, hOff = swimming ? 1.1 : 1.55;
+      const head = new THREE.Vector3(pl.x, pl.y + hOff, pl.z);
       const right = new THREE.Vector3(-Math.cos(this.footYaw), 0, Math.sin(this.footYaw));
-      const want = new THREE.Vector3(pl.x - Math.sin(this.footYaw) * d * Math.cos(this.footPitch), pl.y + 1.6 + Math.sin(this.footPitch) * d, pl.z - Math.cos(this.footYaw) * d * Math.cos(this.footPitch)).addScaledVector(right, 0.55);
+      const want = new THREE.Vector3(pl.x - Math.sin(this.footYaw) * d * Math.cos(this.footPitch), pl.y + hOff + 0.05 + Math.sin(this.footPitch) * d, pl.z - Math.cos(this.footYaw) * d * Math.cos(this.footPitch)).addScaledVector(right, 0.55);
       const t = g.world.colliders.raycast(head.x, head.z, want.x, want.z, pl.y + 0.3, pl.y + 2.5, (c) => c.kind === 'building' || c.kind === 'wall');
       if (t < 1) { want.x = lerp(head.x, want.x, Math.max(0.1, t - 0.1)); want.z = lerp(head.z, want.z, Math.max(0.1, t - 0.1)); }
       let gy = g.world.groundY(want.x, want.z, want.y) + 0.3;
-      if (g.world.sea) gy = Math.max(gy, g.world.sea.waveAt(want.x, want.z) + (pl.state === 'swim' ? 0.45 : 0.3));
+      if (diving) gy = g.world.terrain.height(want.x, want.z) + 0.3;
+      else if (g.world.sea) gy = Math.max(gy, g.world.sea.waveAt(want.x, want.z) + (swimming ? 0.45 : 0.3));
       if (want.y < gy) want.y = gy;
       this.pos.lerp(want, 1 - Math.exp(-dt * (this.settle > 0 ? 3.2 : 14)));
       cam.position.copy(this.pos);

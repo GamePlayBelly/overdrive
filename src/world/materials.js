@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as T from './textures.js';
 import { buildUber } from './uber.js';
 import { PHOTO, loadPhotos } from './photos.js';
+import { WATER_FX, WATER_FX_GLSL } from './waterFx.js';
 
 // tile size in metres of the procedural texture each photo replaces: the world's UVs are metres / this
 const SITE = { asphalt: 7, concrete: 3, plain: 3, pavers: 2.4, grass: 5, dirt: 6, gravel: 3, sand: 6, brick: 3.2, stucco: 4, corr: 3.2, shingles: 3, membrane: 8, bark: 2 };
@@ -67,10 +68,11 @@ export async function createMaterials(renderer) {
   M.terrain.onBeforeCompile = (sh) => {
     sh.uniforms.uGrass = { value: grass.map }; sh.uniforms.uDirt = { value: dirt.map }; sh.uniforms.uSand = { value: sand.map }; sh.uniforms.uRock = { value: rock.map };
     sh.uniforms.uTS = { value: new THREE.Vector4(...TS) };
+    Object.assign(sh.uniforms, WATER_FX);
     sh.uniforms.uNoise = { value: noiseTex };
     if (terrNR) Object.assign(sh.uniforms, { uNG: { value: terrNR.g }, uND: { value: terrNR.d }, uNS: { value: terrNR.s }, uNR: { value: terrNR.r } });
     sh.vertexShader = 'attribute vec4 aW; varying vec4 vW; varying vec3 vTP; varying vec3 vTN;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvW = aW; vTP = position; vTN = normal;');
-    sh.fragmentShader = (terrNR ? '#define TERR_NRM\nuniform sampler2D uNG; uniform sampler2D uND; uniform sampler2D uNS; uniform sampler2D uNR;\n' : '') + 'uniform vec4 uTS; uniform sampler2D uNoise; uniform sampler2D uGrass; uniform sampler2D uDirt; uniform sampler2D uSand; uniform sampler2D uRock; varying vec4 vW; varying vec3 vTP; varying vec3 vTN;\n' + sh.fragmentShader
+    sh.fragmentShader = (terrNR ? '#define TERR_NRM\nuniform sampler2D uNG; uniform sampler2D uND; uniform sampler2D uNS; uniform sampler2D uNR;\n' : '') + WATER_FX_GLSL + 'uniform vec4 uTS; uniform sampler2D uNoise; uniform sampler2D uGrass; uniform sampler2D uDirt; uniform sampler2D uSand; uniform sampler2D uRock; varying vec4 vW; varying vec3 vTP; varying vec3 vTN;\n' + sh.fragmentShader
       .replace('#include <map_fragment>', `
         vec2 uvg = vMapUv * uTS.x, uvd = vMapUv * uTS.y, uvs = vMapUv * uTS.z, uvr = vMapUv * uTS.w;
         vec3 tg = texture2D(uGrass, uvg).rgb, td = texture2D(uDirt, uvd).rgb, ts = texture2D(uSand, uvs).rgb, tr = texture2D(uRock, uvr).rgb;
@@ -83,7 +85,8 @@ export async function createMaterials(renderer) {
         w.z = mix(w.z, 1.0, sandK); w.x *= 1.0 - sandK; w.y *= 1.0 - sandK;
         tg *= mix(vec3(1.25, 1.02, 0.52), vec3(0.84, 1.03, 1.12), smoothstep(0.25, 0.75, macro));
         vec3 sp = tg * w.x + td * w.y + ts * w.z + tr * w.w;
-        diffuseColor.rgb *= sp * (0.78 + 0.5 * macro);`)
+        diffuseColor.rgb *= sp * (0.78 + 0.5 * macro);
+        diffuseColor.rgb = wfxApply(diffuseColor.rgb, vTP, length(vViewPosition));`)
       .replace('#include <color_fragment>', `
 #ifdef USE_COLOR
         diffuseColor.rgb *= mix(vColor.rgb, vec3(0.95), clamp(1.0 - w.x, 0.0, 1.0));

@@ -98,6 +98,7 @@ export class Replay {
     for (const h of g.police?.helis || []) off(h.group);
     for (const o of g.police?.officers || []) off(o.rig?.root);
     off(g.player.rig?.root);
+    off(g.seaTraffic?.pop?.proxy?.hull); off(g.seaTraffic?.pop?.proxy?.rig);
   }
 
   pose(t, dt) {

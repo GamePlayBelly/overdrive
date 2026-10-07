@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { createCarMesh } from '../vehicles/carMesh.js';
-import { buildHuman, poseFor, applyPose, blendPose, REST } from '../actors/human.js';
 import { VEHICLE_BY_ID } from '../data/vehicles.js';
 import { MISSIONS } from '../data/missions.js';
 import { wrapAngle } from '../core/math.js';
+import { buildHuman, poseFor, applyPose, blendPose, REST, DEFAULT_LOOK } from '../actors/human.js';
 
 // Other players as interpolated ghost vehicles with name tags, plus the multiplayer lobby modes (race, co-op, police vs drivers).
 function nameTag(text) {
@@ -31,25 +31,17 @@ export class RemotePlayers {
   clear() { for (const r of this.list.values()) this.remove(r); this.list.clear(); }
   remove(r) { this.g.scene.remove(r.group); r.car?.mats.paint?.dispose?.(); }
 
-  // a player on foot: their own avatar (fetched once from the server), walking, running and jumping with their real speed
-  spawnHuman(p) {
-    const looks = (this.looks ||= new Map());
-    const r = { id: p.id, human: true, def: VEHICLE_BY_ID.civa, group: new THREE.Group(), x: p.x, y: p.y, z: p.z, yaw: p.yaw, phase: 0, t: 0, pose: { ...REST }, model: p.model, foot: true };
-    const build = (look) => {
-      if (r.rig) r.group.remove(r.rig.root);
-      r.rig = buildHuman(look);
-      r.rig.root.rotation.order = 'YXZ'; r.rig.root.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
-      r.group.add(r.rig.root);
-    };
-    build(looks.get(p.id) || undefined);
-    const tag = nameTag(p.name || 'Player'); tag.position.set(0, 2.15, 0); r.group.add(tag); r.tag = tag;
-    if (!looks.has(p.id)) { looks.set(p.id, null); this.app.net.request('player.look', { id: p.id }).then((res) => { if (res.ok && res.look) { looks.set(p.id, res.look); try { build(res.look); } catch (e) { console.warn('remote look', e); } } else looks.delete(p.id); }); }
-    this.g.scene.add(r.group);
-    return r;
+  // another player on foot or swimming is a person, not a car
+  spawnFoot(p) {
+    const rig = buildHuman({ ...DEFAULT_LOOK, ...(p.look || {}) });
+    rig.root.rotation.order = 'YXZ';
+    const tag = nameTag(p.name || 'Player'); tag.position.set(0, 2.2, 0); rig.root.add(tag);
+    this.g.scene.add(rig.root);
+    return { id: p.id, foot: true, rig, group: rig.root, tag, pose: { ...REST }, ph: 0, x: p.x, y: p.y, z: p.z, yaw: p.yaw, spin: 0, model: 'foot', mode: p.foot };
   }
 
   spawn(p) {
-    if (p.foot) return this.spawnHuman(p);
+    if (p.foot) return this.spawnFoot(p);
     const def = VEHICLE_BY_ID[p.model] || VEHICLE_BY_ID.civa;
     const car = createCarMesh(def, { color: p.color || def.colors[0], doors: false });
     const group = car.group;
@@ -69,23 +61,20 @@ export class RemotePlayers {
     for (const [d, p] of near.slice(0, 8)) {
       keep.add(p.id);
       let r = this.list.get(p.id);
-      if (r && (r.model !== p.model || r.foot !== !!p.foot)) { this.remove(r); this.list.delete(p.id); r = null; }
-      if (!r) { r = this.spawn(p); this.list.set(p.id, r); }
+      if (r && (r.model !== (p.foot ? 'foot' : p.model) || (r.foot && r.look !== p.look))) { this.remove(r); this.list.delete(p.id); r = null; }
+      if (!r) { r = this.spawn(p); r.look = p.look; this.list.set(p.id, r); }
       const k = Math.min(1, (now - p.t) / 100);
       const tx = p.px + (p.x - p.px) * k + Math.sin(p.yaw) * p.speed * Math.max(0, (now - p.t - 100) / 1000) * 0.6, tz = p.pz + (p.z - p.pz) * k + Math.cos(p.yaw) * p.speed * Math.max(0, (now - p.t - 100) / 1000) * 0.6;
       const f = 1 - Math.exp(-dt * 14);
       r.x += (tx - r.x) * f; r.z += (tz - r.z) * f; r.y += (p.y - r.y) * f;
       r.yaw += wrapAngle(p.yaw - r.yaw) * f;
-      r.group.position.set(r.x, r.y, r.z); r.group.rotation.set(0, r.yaw, 0);
-      r.speedNet = p.speed;
-      if (r.human) {
-        const sp = p.speed || 0, vy = p.py !== undefined ? (p.y - p.py) / 0.1 : 0;
-        const anim = Math.abs(vy) > 1.4 && Math.abs(r.y - p.y) > 0.05 ? 'jump' : sp < 0.3 ? 'idle' : sp < 2.4 ? 'walk' : sp < 5 ? 'run' : 'sprint';
-        r.t += dt; r.phase += (sp / (anim === 'walk' ? 1.45 : anim === 'run' ? 2.2 : 2.7)) * Math.PI * dt;
-        blendPose(r.pose, poseFor(anim, r.t, r.phase, anim === 'walk' ? Math.min(1, sp / 1.5) : 1), 1 - Math.exp(-dt * 12), r.pose);
-        applyPose(r.rig, r.pose);
+      if (r.foot) {
+        r.ph += p.speed * 2.2 * dt; const sw = p.foot === 2, an = sw ? (p.speed > 0.4 ? 'swim' : 'tread') : p.speed < 0.3 ? 'idle' : p.speed < 2.4 ? 'walk' : p.speed < 5 ? 'run' : 'sprint';
+        blendPose(r.pose, poseFor(an, now / 1000, r.ph * (sw ? 3.1 : 1), 1), 1 - Math.exp(-dt * 10), r.pose); applyPose(r.rig, r.pose);
+        r.group.position.set(r.x, r.y, r.z); r.group.rotation.set(sw && p.speed > 0.4 ? 1.2 : 0, r.yaw, 0);
       } else {
-        r.spin += (p.speed / 0.33) * dt;
+        r.group.position.set(r.x, r.y, r.z); r.group.rotation.set(0, r.yaw, 0);
+        r.spin += (p.speed / 0.33) * dt; r.speedNet = p.speed;
         for (const w of r.car.wheels) w.spin.rotation.x = r.spin;
       }
       r.tag.visible = d < 140;

@@ -19,6 +19,7 @@ export class VehicleFx {
     game.on('vehicle:landing', (e) => this.landing(e));
     game.on('vehicle:bump', (e) => { if (e.v.isBoat && e.impact > 2.2) this.slam(e.v, e.impact); });
     game.on('player:splash', (e) => this.splash(e.x, e.y, e.z, e.speed));
+    game.on('player:wade', (e) => this.wade(e));
     this.enabled = true;
   }
 
@@ -33,7 +34,7 @@ export class VehicleFx {
     if (this.enabled) for (const v of g.vehicles) { if (v.group.visible && (v.speed > 0.3 || v.phys.spin > 0.05 || v.phys.nitroOn || v.phys.engineOn)) this.vehicle(v, dt); }
     const light = 0.28 + 0.72 * (1 - sky.night) * (0.6 + 0.4 * sky.w.sun);
     const P = g.player;
-    if (P.state === 'swim' && g.wake) this.swimmer(P, dt);
+    if (P.state === 'swim' && g.wake && P.dive < 0.3) this.swimmer(P, dt);
     this.pt.update(dt, light);
     this.marks.flush();
   }
@@ -128,6 +129,11 @@ export class VehicleFx {
       if (sp > 1.5 || thr > 0.1) { wv(0, -L * 0.5 - 0.4); W.stamp(_a.x, _a.z, Wd * 0.7, clamp(0.25 + thr * 0.5 + k * 0.35, 0, 1) * p.propK); }
       if (sp > 4) for (const sg of [1, -1]) { wv(sg * Wd * 0.55, L * 0.34); W.stamp(_a.x, _a.z, 1.1 + k * 0.8, 0.3 + 0.4 * k); wv(sg * Wd * 0.72, -L * 0.12); W.stamp(_a.x, _a.z, 1.4 + k, 0.22 + 0.35 * k); }
     }
+    if (W && d2 < 75 * 75 && wet && sp > 1.2) {
+      const k = clamp(sp / 16, 0, 1), sc = clamp(L / 6, 0.6, 2.2) * Math.min(1, sp / 5);
+      wv(0, L * 0.4); W.wave(_a.x, _a.z, Wd * 0.8 + 0.6, (0.01 + 0.02 * k) * sc);
+      wv(0, -L * 0.36); W.wave(_a.x, _a.z, Wd * 0.8 + 0.6, -(0.007 + 0.014 * k) * sc);
+    }
     if (d2 > 140 * 140) return;
     const toWorld = (lx, ly, lz, o = _q) => o.set(c * lx + s * lz, ly, -s * lx + c * lz);
     // bow spray
@@ -195,9 +201,17 @@ export class VehicleFx {
     if (W) { W.stamp(x, z, 1.4 + size * 0.8, 0.9); W.stamp(x, z, 2.6 + size, 0.5); }
   }
 
+  // knee-deep steps: small rings and droplets at the feet
+  wade(e) {
+    const sea = this.g.world.sea, W = this.g.wake, n = 2 + Math.round(e.speed * 1.2);
+    if (W) { W.stamp(e.x, e.z, 0.7, 0.18); W.wave(e.x, e.z, 0.6, 0.01); }
+    for (let i = 0; i < n; i++) this.pt.emit({ x: e.x + rnd(0.35), y: (sea ? sea.waveAt(e.x, e.z) : e.y) + 0.05, z: e.z + rnd(0.35), vx: rnd(0.9), vy: 0.8 + Math.random() * 1.1 * Math.min(1.5, e.speed / 3), vz: rnd(0.9), life: 0.45 + Math.random() * 0.35, s0: 0.06, s1: 0.2, c0: [1, 1, 1, 0.45], c1: [0.9, 0.96, 1, 0], drag: 1, grav: 8, kind: 0 });
+  }
+
   swimmer(P, dt) {
     const W = this.g.wake, sea = this.g.world.sea;
     W.stamp(P.x, P.z, 0.9, 0.12 + Math.min(0.25, P.speed * 0.1));
+    if (P.speed > 0.5) W.wave(P.x, P.z, 0.9, 0.012 * Math.min(1, P.speed));
     if (P.speed > 0.6) {
       const n = this.rate('sw', P.speed * 8, dt);
       for (let k = 0; k < n; k++) this.pt.emit({ x: P.x + Math.sin(P.yaw) * 0.3 + rnd(0.3), y: sea.waveAt(P.x, P.z) + 0.05, z: P.z + Math.cos(P.yaw) * 0.3 + rnd(0.3), vx: rnd(0.6), vy: 0.4 + Math.random() * 0.8, vz: rnd(0.6), life: 0.5 + Math.random() * 0.4, s0: 0.08, s1: 0.3, c0: [1, 1, 1, 0.4], c1: [0.9, 0.96, 1, 0], drag: 1, grav: 7, kind: 0 });

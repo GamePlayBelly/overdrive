@@ -57,7 +57,14 @@ const cache = new WeakMap();
 export function soundProfile(def) {
   let p = cache.get(def);
   if (p) return p;
-  const s = def.sound || {}, perf = def.perf || {}, st = def.body?.style;
+  // the short names (type, diesel, engine, exhaust, intake, trans, tire, wind, shift, idle) are accepted as aliases of the long ones
+  const raw = def.sound || {}, s = { ...raw };
+  const alias = { engine: 'engineVolume', exhaust: 'exhaustVolume', intake: 'intakeVolume', trans: 'transmissionVolume', tire: 'tireVolume', wind: 'windVolume', shift: 'gearShiftIntensity', idle: 'idleRPM' };
+  for (const [k, v] of Object.entries(alias)) if (raw[k] !== undefined && raw[v] === undefined) s[v] = raw[k];
+  if (!s.engineType && raw.type && ENGINE_TYPES[raw.type]) s.engineType = raw.type;
+  if (!s.engineType && raw.diesel) s.engineType = 'diesel';
+  if (typeof raw.turbo === 'number') s.turbo = raw.turbo > 0;
+  const perf = def.perf || {}, st = def.body?.style;
   const bike = st === 'bike';
   let type = s.engineType || null, T = null, kind;
   if (def.air) { kind = def.air === 'jet' ? 3 : def.air === 'heli' ? 1 : 2; type = 'air'; }
@@ -297,7 +304,7 @@ export class VehicleAudio {
     }
     const rem = game.remotes?.list;
     if (rem) for (const r of rem.values()) {
-      if (r.human) continue;      // a player on foot has no engine
+      if (r.foot || !r.def) continue;      // a player on foot or swimming has no engine
       const dx = r.x - cp.x, dz = r.z - cp.z, d2 = dx * dx + dz * dz;
       if (d2 < 140 * 140) cand.push({ def: r.def, obj: r, kind: 'remote', d2, id: 'r' + r.id });
     }
@@ -311,7 +318,7 @@ export class VehicleAudio {
     const set = (g, v, tc = 0.06) => g.gain.setTargetAtTime(v, t, tc);
     const freq = (n, f, tc = 0.1) => n.frequency.setTargetAtTime(f, t, tc);
     const wetSky = game.sky.wetness || 0, rain = A.zone.rain || 0;
-    if (!pv) { for (const k of ['wind', 'road', 'squeal', 'grit', 'spray', 'brake']) set(L[k].out, 0, 0.1); A.state.skid = 0; return; }
+    if (!pv) { for (const k of ['wind', 'road', 'squeal', 'grit', 'spray', 'brake', 'wake']) set(L[k].out, 0, 0.1); A.state.skid = 0; return; }
     const ph = pv.phys, prof = soundProfile(pv.def), sp = ph.speed || 0;
     const bike = prof.bike, boat = !!pv.isBoat, interior = mode === 'cockpit' && !bike && !boat && !pv.isAir;
     const cabinK = interior ? 0.55 : 1;
@@ -321,14 +328,15 @@ export class VehicleAudio {
     set(L.wind.out, wind * 0.65 * cabinK * prof.wind * (rain > 0.5 ? 1.1 : 1) * (bike && mode === 'cockpit' ? 1.15 : 1));
     freq(L.wind.lp, 500 + spW * 26 * (interior ? 0.8 : 1));
     if (boat) {
-      const asph = false;
-      void asph;
       set(L.road.out, clamp(sp / 22, 0, 1) * (0.25 + 0.3 * ph.planing) * cabinK * (ph.wetN > 0 ? 1 : 0.15)); freq(L.road.lp, 700 + sp * 70 + ph.planing * 500);
+      // hull wash: only while the hull is in the water
+      set(L.wake.out, clamp(sp / 24, 0, 1) * (0.1 + 0.5 * ph.planing) * cabinK * (ph.wetN > 0 ? 1 : 0), 0.15); freq(L.wake.hp, 1200 + sp * 60, 0.2);
       for (const k of ['squeal', 'grit', 'spray', 'brake']) set(L[k].out, 0, 0.1);
       A.state.skid = 0;
       return;
     }
-    if (pv.isAir) { for (const k of ['road', 'squeal', 'grit', 'spray', 'brake']) set(L[k].out, 0, 0.1); A.state.skid = 0; return; }
+    set(L.wake.out, 0, 0.1);
+    if (pv.isAir) { for (const k of ['road', 'squeal', 'grit', 'spray', 'brake', 'wake']) set(L[k].out, 0, 0.1); A.state.skid = 0; return; }
     // surface under the front and rear tyres, blended
     const sf = SURFACE_SOUND[ph.surfF] || ROAD, sr = SURFACE_SOUND[ph.surfR] || ROAD;
     const mix = (key) => (sf[key] + sr[key]) * 0.5;
@@ -351,7 +359,7 @@ export class VehicleAudio {
     set(L.grit.out, gr * 0.6 * cabinK * tireV, 0.08); freq(L.grit.lp, mix('gritLp') + sp * mix('gritSp'));
     // water thrown up by the tyres: wet roads, puddles, shallows
     const spray = clamp(sp / 30, 0, 1) ** 1.2 * (wet * mix('spray') * 0.3 + (sf.spray > 1.5 || sr.spray > 1.5 ? 0.35 : 0)) * ground;
-    set(L.spray.out, spray * cabinK * tireV * (interior ? 0.7 : 1), 0.12); freq(L.spray.bp, 2600 + sp * 45, 0.2);
+    set(L.spray.out, spray * cabinK * tireV * (interior ? 0.7 : 1), 0.12); freq(L.spray.hp, 1700 + sp * 22, 0.2);
     // brakes: pad hiss, plus a thin squeal when stopping hard at low speed
     const brk = clamp(ph.brkIn || 0, 0, 1);
     const lowSq = brk > 0.6 && sp > 1.5 && sp < 9 ? (brk - 0.6) * 0.9 : 0;

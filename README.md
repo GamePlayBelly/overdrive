@@ -17,6 +17,7 @@ Progress is saved in the browser; online play keeps the profile on the server.
 | Drive | W A S D, Space handbrake and drift, Shift nitro, H horn, L lights, C camera, B look back, R reset |
 | Look | Mouse (click the game to capture it, Esc releases it) or the arrow keys |
 | Boats | same keys, F to board and leave, Space drifts the hull |
+| Swimming | W A S D swim, Ctrl dives, Space rises, Shift sprints; breath lasts about 45 s and the HUD shows breath and depth underwater |
 | Sailboats | A D rudder, Space eases the sheets (spill wind, slow down), W starts the auxiliary engine; sails trim themselves, the dial shows the wind, the no-go zone and the boom |
 | Aircraft | F to get in, Shift/Ctrl throttle, W/S pitch, A/D bank, Q/E rudder, Space brakes, F to get out once landed |
 | On foot | WASD, Shift sprint, Space jump, left click punch, F enter or exit a vehicle, E enter a building / talk / pick up |
@@ -25,6 +26,7 @@ Progress is saved in the browser; online play keeps the profile on the server.
 ## What is in it
 
 - City, suburbs, industrial harbor, forest hills, farms, the bay, open sea and Riverton Airfield, plus three outer regions reached by designed roads with graded profiles and hairpins: Alder Peak (snow village, Route 12, 230 m up), Dry Springs (desert town, Route 40, 170 m up, mesa, windmills) and Marin Island (village, coast road, lighthouse, boats on moorings) joined to the mainland by the Bayline Bridge, a cable-stayed span; traffic, pedestrians, police with six wanted levels (units arrive within seconds, stealing a car is one star).
+- The sea: eight Gerstner components driven by the wind (wind sea, swell, crossing sea; waves up to about 6 m in a gale), foam, spindrift and a hull-wave simulation for wakes; the same surface drives boats, swimmers and fish. Weather presets from calm to gale, local squalls, gradual changes. Boats ride the real surface with windage, swamping and reefing; about 35 boats live on a nav grid (far ones as points, mid ones as instanced proxies, near ones as physics boats) and run for port when the sea gets too big. Coast guard patrols, cutters and helicopters chase a wanted boat or swimmer: they intercept, flank and block, then sweep from the last known position while the stars come off. Underwater has fog, light shafts, caustics, breath, schools of fish, rays, jellyfish, reef and wrecks. Maritime events (distress calls, people overboard, floating cargo, dolphins, coast guard stops, squalls) appear around the player.
 - Cars, bikes, trucks, five motor boats and three sailing boats (skiff, 31 ft sloop, 44 ft cruiser) with wave and wind physics (apparent wind, lift and drag from the sails, heel, no-go zone, leeway),  and a prop plane, a helicopter and a jet with a flight model; swimming and boarding.
 - Walk into buildings: shops, cafes, offices, workshops, bars, houses, warehouses, gyms and the precinct, each with a person who offers work, services or rumors and things to pick up with E.
 - Fists with blood, knock-downs and witnesses; carjacking throws the driver out.
@@ -42,7 +44,7 @@ Progress is saved in the browser; online play keeps the profile on the server.
 src/core      math, input, audio helpers, asset loader
 src/world     terrain, roads, buildings, sea, sky, grass, vegetation, airfield
 src/vehicles  car, boat and aircraft models and physics, AI drivers
-src/actors    player, characters, pedestrians, traffic, police, sea traffic
+src/actors    player, characters, pedestrians, traffic, police, boat traffic, coast guard, marine life
 src/game      game loop, camera, missions, jobs, economy rules, replay, car meet, auction, combat
 src/render    post pipeline, governor, particles, wake map
 src/app       app shell, menu pages, HUD, phone, building interiors
@@ -73,5 +75,5 @@ Turbo whistle and blow-off only play on cars with a turbo kit fitted in the gara
 ## Tests and measurements
 
 Scripts in `tools/` drive a real Edge instance with the GPU enabled. Examples: `mission.mjs` (all story missions with cheats),
-`boatflow.mjs`, `fly.mjs`, `interior.mjs`, `combat.mjs`, `replay.mjs`, `meet.mjs`, `race.mjs`, `auction.mjs`, `tour.mjs` (every menu page),
-`avatarfaces.mjs`, `gpu*.mjs` (GPU timer queries), `gpuspots.mjs` (GPU ms at fixed places, `QUERY='?dev=1&nophoto=1'` for A/B), `aileg3.mjs` (an AI rival drives a whole league race), `racenew.mjs`, `routedrive.mjs`, `sailpolar.mjs` (sailing speed polar), `sailplay.mjs`, `sailshot.mjs`, `sailbuy.mjs`, `poicheck.mjs` (collectibles on dry land near roads), `jumpclimb.mjs` (jump, vault, climb), `audiodrive.mjs` (vehicle audio), `mpnet.mjs` (multiplayer protocol, no browser needed). Set `CHROME_PATH` to run the browser scripts on Linux.
+`boatflow.mjs`, `seastate.mjs`, `boatstorm.mjs`, `seatraffic.mjs`, `swim.mjs`, `fauna.mjs`, `cg.mjs`, `events.mjs`, `fly.mjs`, `interior.mjs`, `combat.mjs`, `replay.mjs`, `meet.mjs`, `race.mjs`, `auction.mjs`, `tour.mjs` (every menu page),
+`avatarfaces.mjs`, `gpu*.mjs` (GPU timer queries), `gpuspots.mjs` (GPU ms at fixed places, `QUERY='?dev=1&nophoto=1'` for A/B), `aileg3.mjs` (an AI rival drives a whole league race), `racenew.mjs`, `routedrive.mjs`, `sailpolar.mjs` (sailing speed polar), `sailplay.mjs`, `sailshot.mjs`, `sailbuy.mjs`, `poicheck.mjs` (collectibles on dry land near roads), `jumpclimb.mjs` (jump, vault, climb), `doorscan.mjs` (how many buildings offer a door), `audiodrive.mjs` and `audionpc.mjs` (vehicle audio), `mpnet.mjs` and `mpclient.mjs` (multiplayer protocol and client, no browser needed). Set `CHROME_PATH` to run the browser scripts on Linux.
